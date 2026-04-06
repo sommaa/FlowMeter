@@ -1,0 +1,486 @@
+/* Import Google Fonts - Inter only for unified typography */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ============================================
+       Modern Neutral Palette
+       Inspired by Claude/OpenAI aesthetic
+       ============================================ */
+    --background: 0 0% 97.5%;
+    --foreground: 0 0% 9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 9%;
+
+    --card-elevated: 0 0% 100%;
+    --card-recessed: 0 0% 95%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 9%;
+
+    /* PRIMARY: Neutral dark for primary actions */
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 98%;
+
+    /* SECONDARY */
+    --secondary: 0 0% 95.5%;
+    --secondary-foreground: 0 0% 9%;
+
+    /* MUTED */
+    --muted: 0 0% 93%;
+    --muted-foreground: 0 0% 44%;
+
+    --accent: 0 0% 95.5%;
+    --accent-foreground: 0 0% 9%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+
+    /* BORDERS */
+    --border: 0 0% 89%;
+    --border-subtle: 0 0% 92%;
+    --border-prominent: 0 0% 80%;
+
+    --input: 0 0% 89%;
+    --ring: 0 0% 9%;
+
+    --radius: 0.75rem;
+
+    /* ============================================
+       Z-Index Layer System
+       ============================================ */
+    --z-base: 0;
+    --z-header: 40;
+    --z-overlay: 100;
+    --z-modal: 110;
+    --z-dropdown: 120;
+    --z-popover: 130;
+
+    /* ============================================
+       Simplified Shadow System
+       Flat, subtle — borders do most of the work
+       ============================================ */
+    --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+    --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.06), 0 1px 2px -1px rgba(0, 0, 0, 0.06);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+
+    --shadow-inner-xs: inset 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+    --shadow-inner-sm: inset 0 1px 3px 0 rgba(0, 0, 0, 0.06);
+    --shadow-inner-md: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+
+    --glow-primary: none;
+    --glow-primary-intense: none;
+    --highlight-top: none;
+    --highlight-top-subtle: none;
+  }
+
+  .dark {
+    color-scheme: dark;
+    --background: 0 0% 7%;
+    --foreground: 0 0% 93%;
+
+    --card: 0 0% 10%;
+    --card-foreground: 0 0% 93%;
+    --card-elevated: 0 0% 13%;
+    --card-recessed: 0 0% 8%;
+
+    --popover: 0 0% 10%;
+    --popover-foreground: 0 0% 93%;
+
+    /* Dark mode primary: light text on dark */
+    --primary: 0 0% 93%;
+    --primary-foreground: 0 0% 9%;
+
+    --secondary: 0 0% 15%;
+    --secondary-foreground: 0 0% 93%;
+
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 55%;
+
+    --accent: 0 0% 15%;
+    --accent-foreground: 0 0% 93%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 93%;
+
+    --border: 0 0% 18%;
+    --border-subtle: 0 0% 15%;
+    --border-prominent: 0 0% 25%;
+    --input: 0 0% 15%;
+
+    --ring: 0 0% 70%;
+
+    /* Dark mode shadows — subtler */
+    --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+    --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.35), 0 1px 2px -1px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.35), 0 2px 4px -2px rgba(0, 0, 0, 0.25);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -4px rgba(0, 0, 0, 0.25);
+    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.25);
+
+    --shadow-inner-xs: inset 0 1px 2px 0 rgba(0, 0, 0, 0.25);
+    --shadow-inner-sm: inset 0 1px 4px 0 rgba(0, 0, 0, 0.3);
+    --shadow-inner-md: inset 0 2px 6px 0 rgba(0, 0, 0, 0.3);
+
+    --glow-primary: none;
+    --glow-primary-intense: none;
+    --highlight-top: none;
+    --highlight-top-subtle: none;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    scroll-behavior: smooth;
+    letter-spacing: -0.011em;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    letter-spacing: -0.02em;
+  }
+}
+
+/* ================================================
+   UTILITY CLASSES - Clean, Minimal
+   ================================================ */
+@layer utilities {
+
+  /* Glass effect - simplified, subtle */
+  .glass {
+    @apply bg-white/80 dark:bg-neutral-900/80 backdrop-blur-sm;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .glass-subtle {
+    @apply bg-white/60 dark:bg-neutral-900/60 backdrop-blur-[2px];
+  }
+
+  .text-gradient {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(to right, hsl(var(--foreground)), hsl(var(--muted-foreground)));
+  }
+
+  /* ============================================
+     ELEVATION UTILITIES - Simplified
+     ============================================ */
+
+  .elevation-0 {
+    box-shadow: none;
+  }
+
+  .elevation-1 {
+    box-shadow: var(--shadow-xs);
+  }
+
+  .elevation-2 {
+    box-shadow: var(--shadow-sm);
+  }
+
+  .elevation-3 {
+    box-shadow: var(--shadow-md);
+  }
+
+  .elevation-4 {
+    box-shadow: var(--shadow-lg);
+  }
+
+  .elevation-5 {
+    box-shadow: var(--shadow-xl);
+  }
+
+  /* Hover elevation transitions */
+  .elevation-hover {
+    transition: box-shadow 0.15s ease-out;
+  }
+
+  .elevation-hover:hover {
+    box-shadow: var(--shadow-md);
+  }
+
+  .elevation-hover-lg:hover {
+    box-shadow: var(--shadow-lg);
+  }
+
+  /* ============================================
+     INSET/RECESSED EFFECTS
+     ============================================ */
+
+  .inset-1 {
+    box-shadow: var(--shadow-inner-xs);
+    background-color: hsl(var(--card-recessed));
+  }
+
+  .inset-2 {
+    box-shadow: var(--shadow-inner-sm);
+    background-color: hsl(var(--card-recessed));
+  }
+
+  .inset-3 {
+    box-shadow: var(--shadow-inner-md);
+    background-color: hsl(var(--card-recessed));
+  }
+
+  /* ============================================
+     FOCUS STATES - Clean ring instead of glow
+     ============================================ */
+
+  .focus-glow:focus,
+  .focus-glow:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--ring) / 0.3);
+  }
+
+  .focus-glow-intense:focus,
+  .focus-glow-intense:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--ring) / 0.5);
+  }
+
+  /* ============================================
+     CARD VARIANTS - Simplified
+     ============================================ */
+
+  .card-elevated {
+    background-color: hsl(var(--card-elevated));
+    box-shadow: var(--shadow-sm);
+    border: 1px solid hsl(var(--border));
+  }
+
+  .card-floating {
+    background-color: hsl(var(--card));
+    box-shadow: var(--shadow-md);
+    border: 1px solid hsl(var(--border-subtle));
+  }
+
+  .card-recessed {
+    background-color: hsl(var(--card-recessed));
+    box-shadow: var(--shadow-inner-xs);
+    border: 1px solid hsl(var(--border-subtle));
+  }
+
+  /* ============================================
+     SURFACE GRADIENTS - Removed, flat surfaces
+     ============================================ */
+
+  .surface-gradient {
+    background-color: hsl(var(--card));
+  }
+
+  .surface-gradient-subtle {
+    background-color: hsl(var(--card));
+  }
+
+  .header-gradient {
+    background-color: hsl(var(--card));
+  }
+
+  /* ============================================
+     BORDER UTILITIES
+     ============================================ */
+
+  .border-subtle {
+    border-color: hsl(var(--border-subtle));
+  }
+
+  .border-prominent {
+    border-color: hsl(var(--border-prominent));
+  }
+
+  /* Gradient border simplified to solid border */
+  .border-gradient {
+    border: 1px solid hsl(var(--border));
+  }
+
+  /* ============================================
+     INTERACTIVE ELEMENTS - Clean, flat
+     ============================================ */
+
+  .btn-shadow {
+    box-shadow: var(--shadow-xs);
+    transition: all 0.15s ease-out;
+  }
+
+  .btn-shadow:hover {
+    box-shadow: var(--shadow-sm);
+  }
+
+  .btn-shadow:active {
+    box-shadow: none;
+    transform: scale(0.98);
+  }
+
+  .btn-primary-glow {
+    box-shadow: var(--shadow-xs);
+    transition: all 0.15s ease-out;
+  }
+
+  .btn-primary-glow:hover {
+    box-shadow: var(--shadow-sm);
+    filter: brightness(1.05);
+  }
+
+  .btn-primary-glow:active {
+    box-shadow: none;
+    transform: scale(0.98);
+  }
+
+  /* ============================================
+     INPUT STYLING - Minimal
+     ============================================ */
+
+  .input-recessed {
+    box-shadow: var(--shadow-inner-xs);
+    background-color: hsl(var(--card-recessed));
+    border: 1px solid hsl(var(--border));
+    transition: border-color 0.15s ease-out;
+  }
+
+  .input-recessed:hover {
+    border-color: hsl(var(--border-prominent));
+  }
+
+  .input-recessed:focus,
+  .input-recessed:focus-visible {
+    outline: none;
+    border-color: hsl(var(--ring));
+    background-color: hsl(var(--card));
+    box-shadow: 0 0 0 2px hsl(var(--ring) / 0.1);
+  }
+
+  /* ============================================
+     SEPARATORS - Simple
+     ============================================ */
+
+  .separator-depth {
+    border: none;
+    height: 1px;
+    background: hsl(var(--border));
+  }
+
+  .separator-depth::after {
+    display: none;
+  }
+
+  /* ============================================
+     ANIMATIONS - Fast, subtle
+     ============================================ */
+
+  @keyframes subtle-float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-1px); }
+  }
+
+  @keyframes subtle-pulse-shadow {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.85; }
+  }
+
+  .animate-float {
+    animation: subtle-float 4s ease-in-out infinite;
+  }
+
+  .animate-pulse-shadow {
+    animation: subtle-pulse-shadow 3s ease-in-out infinite;
+  }
+
+  /* ============================================
+     SCROLLBAR - Minimal, auto-hide feel
+     ============================================ */
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.2) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--muted-foreground) / 0.2);
+    border-radius: 9999px;
+    border: 1px solid transparent;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.35);
+  }
+
+  ::-webkit-scrollbar-thumb:active {
+    background-color: hsl(var(--muted-foreground) / 0.5);
+  }
+
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  /* Hide number input arrows/spinners */
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  input[type=number] {
+    -moz-appearance: textfield;
+  }
+}
+
+/* ================================================
+   GLOBAL SCROLLBAR STYLES (cross-browser duplication removed)
+   ================================================ */
+
+/* ================================================
+   PLOTLY STYLES - Dark Mode & Transparent
+   ================================================ */
+.js-plotly-plot .modebar,
+.js-plotly-plot .modebar-group {
+  background: transparent !important;
+}
+
+.js-plotly-plot .modebar-btn {
+  background: transparent !important;
+}
+
+.js-plotly-plot .modebar-btn path {
+  fill: hsl(var(--muted-foreground)) !important;
+  opacity: 0.5;
+  transition: opacity 0.15s ease;
+}
+
+.js-plotly-plot .modebar-btn:hover path {
+  opacity: 0.9;
+}
+
+.js-plotly-plot .modebar-btn.active path {
+  opacity: 1;
+}
+
+.js-plotly-plot .modebar-btn.active {
+  background: transparent !important;
+  border-radius: 4px;
+}

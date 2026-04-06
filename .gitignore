@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+*.spec.bak
+
+# Virtual environments
+backend/venv/
+venv/
+.venv/
+
+# Environment files
+.env
+!.env.example
+
+# Node.js
+node_modules/
+frontend/dist/
+
+# Generated documentation
+frontend/docs/
+backend/docs/_build/
+
+# Test artifacts
+frontend/test_output.txt
+backend/routes_list.txt
+*.coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+backend/dist/
+backend/build/
+backend/argparse
+backend/json
+backend/icon.ico
+backend/icon.png
+
+# PyInstaller
+*.manifest
+
+# Uploads (runtime)
+backend/uploads/
+backend/data/
+
+# Miscellaneous
+*.log
