@@ -99,6 +99,7 @@ class AIRequest(BaseModel):
     existing_visualizations: list[str] = Field(default=[], description="Titles of existing visualizations to avoid duplicates")
     max_suggestions: int = Field(default=5, ge=1, le=10, description="Maximum number of suggestions to generate")
     model: Optional[str] = Field(default=None, description="Optional model name override for the AI provider")
+    effort: Optional[str] = Field(default=None, description="Reasoning effort level: 'low', 'medium', or 'high'")
 
 
 class AIVisualizationService:
@@ -122,29 +123,18 @@ class AIVisualizationService:
         pass
 
     def get_available_providers(self) -> list[dict]:
-        """Get list of available AI providers with their models.
+        """Get list of available AI providers.
 
         Returns:
             List of provider dicts, each containing:
                 - id: Provider identifier (gemini, openai, claude)
                 - name: Human-readable name
-                - model: Default model for the provider
-                - models: List of available model options
         """
-        from .ai_graph.providers import get_available_models, get_default_model
-        
-        providers_list = [
+        return [
             {"id": "gemini", "name": "Google Gemini"},
             {"id": "openai", "name": "OpenAI ChatGPT"},
-            {"id": "claude", "name": "Anthropic Claude"}
+            {"id": "claude", "name": "Anthropic Claude"},
         ]
-        
-        for provider in providers_list:
-            pid = provider["id"]
-            provider["model"] = get_default_model(pid)
-            provider["models"] = get_available_models(pid)
-        
-        return providers_list
     
 
     
@@ -221,7 +211,8 @@ class AIVisualizationService:
                 guidance_text=request.guidance_text,
                 api_key=api_key,
                 provider=provider_name,
-                model=request.model,  # Pass user-selected model
+                model=request.model,
+                effort=request.effort,
                 available_viz_types=request.available_viz_types,
                 existing_visualizations=existing,
                 max_suggestions=request.max_suggestions

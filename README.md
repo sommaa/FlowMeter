@@ -499,56 +499,21 @@ FlowMeter integrates AI through a **LangGraph workflow** with structured output 
 
 <br>
 
-**Supported providers and models — 14 total:**
+**Supported providers:**
 
-<table>
-<tr>
-<td width="33%">
+| Provider | Description |
+|:---------|:------------|
+| **Google Gemini** | Gemini model family via Google AI Studio |
+| **OpenAI** | GPT and o-series models |
+| **Anthropic Claude** | Claude model family |
 
-**Google Gemini**
-
-| Model | Notes |
-|:------|:------|
-| `gemini-3-flash` ⭐ | Fast, next-gen |
-| `gemini-3-pro` | Large context |
-| `gemini-3-deep-think` | Advanced reasoning |
-| `gemini-2.5-pro` | Prev. best pro |
-| `gemini-2.0-flash` | Legacy fast |
-
-</td>
-<td width="33%">
-
-**OpenAI**
-
-| Model | Notes |
-|:------|:------|
-| `gpt-5-2` ⭐ | Flagship |
-| `gpt-5-mini` | Cost-effective |
-| `gpt-5-3-codex` | Code & reasoning |
-| `o3-mini` | Advanced reasoning |
-| `gpt-4o` | Legacy multimodal |
-
-</td>
-<td width="33%">
-
-**Anthropic Claude**
-
-| Model | Notes |
-|:------|:------|
-| `claude-sonnet-4-6-20260217` ⭐ | Latest |
-| `claude-opus-4-6-20260205` | Max capability |
-| `claude-sonnet-4-5-20250929` | Previous gen |
-| `claude-haiku-4-5-20251016` | Fast & efficient |
-
-</td>
-</tr>
-</table>
-
-_⭐ = Default model for each provider_
+Models are **fetched dynamically** from each provider's API when you enter your API key — no hardcoded lists. You always see the latest models available to your account.
 
 **AI capabilities:**
 - **Visualization Suggestions** — Describe your data in plain English; AI recommends chart configurations applied immediately
 - **Formula Generation** — Describe a calculation; AI writes the Python formula code (integrated in the Formula Editor)
+- **Dynamic Model Discovery** — Available models fetched in real-time from provider APIs, so new models appear automatically
+- **Reasoning Effort Control** — Adjust AI thinking depth (Low / Medium / High) to balance speed vs. quality; maps to provider-specific features (Anthropic extended thinking, OpenAI reasoning effort, Gemini thinking budget)
 - **Structured Output** — AI responses validated against Pydantic schemas with automatic retry and self-correction
 - **Column Validation** — AI-suggested column names cross-checked against your actual dataset
 - **Context-Aware** — AI receives your column names, data types, sample statistics, and any guidance text you provide
@@ -1179,7 +1144,7 @@ flowmeter/
 │   ├── data/
 │   │   ├── templates/                      # Persistent dashboard templates (JSON)
 │   │   └── models/                         # Saved regression models
-│   ├── tests/                              # Pytest suite (43 test files, 649 tests)
+│   ├── tests/                              # Pytest suite (44 test files, 655 tests)
 │   ├── run.py                              # Executable entry point
 │   ├── requirements.txt                    # Python dependencies
 │   ├── .env.example                        # Environment variable template
@@ -1258,11 +1223,12 @@ All endpoints are prefixed with `/api/v1/`. Interactive documentation available 
 |:-------|:---------|:------------|
 | `POST` | `/export/dashboard` | Generate self-contained HTML report with embedded charts |
 
-#### AI — 4 endpoints
+#### AI — 5 endpoints
 
 | Method | Endpoint | Description |
 |:-------|:---------|:------------|
-| `GET` | `/ai/providers` | List available AI providers and their models |
+| `GET` | `/ai/providers` | List available AI providers |
+| `POST` | `/ai/providers/{provider}/models` | Fetch available models from a provider's API using user's key |
 | `POST` | `/ai/suggest` | Get AI-powered visualization suggestions from natural language |
 | `POST` | `/ai/apply-suggestions` | Convert AI suggestions to `VisualizationConfig` objects |
 | `POST` | `/ai/generate-formula` | Generate Python formula code from natural language |
@@ -1282,7 +1248,7 @@ All endpoints are prefixed with `/api/v1/`. Interactive documentation available 
 | `GET` | `/health` | Health check (status + version) |
 | `GET` | `/api/info` | API name, version, and documentation URLs |
 
-> **Total: 31 endpoints across 8 route groups**
+> **Total: 32 endpoints across 8 route groups**
 
 </details>
 
@@ -1293,7 +1259,7 @@ All endpoints are prefixed with `/api/v1/`. Interactive documentation available 
 
 #### Backend (Pytest)
 
-**43 test files | 649 passing tests** *(1 pre-existing async profiler test skipped)*
+**44 test files | 655 passing tests**
 
 ```bash
 # Run from the repository root directory:
@@ -1332,6 +1298,7 @@ backend/venv/bin/python -m pytest --rootdir=backend -q
 | `test_plotly_renderer.py` | Kaleido PNG rendering |
 | `test_models_api.py` | Regression model persistence API |
 | `test_ai_api.py` | AI suggestion and formula generation API |
+| `test_ai_fetch_models.py` | Dynamic model fetching from provider APIs |
 | `test_ai_service.py` | AI orchestration service |
 | `test_ai_graph.py` | LangGraph workflow integration |
 | `test_ai_graph_providers.py` | Provider factory and model catalog |

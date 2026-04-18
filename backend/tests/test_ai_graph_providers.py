@@ -14,19 +14,23 @@ class TestGetChatModel:
 
     def test_invalid_provider_raises(self):
         with pytest.raises(ValueError):
-            get_chat_model("invalid_provider", api_key="test")
+            get_chat_model("invalid_provider", api_key="test", model="some-model")
+
+    def test_missing_model_raises(self):
+        with pytest.raises(ValueError, match="model must be selected"):
+            get_chat_model("openai", api_key="sk-fake", model="")
 
     def test_gemini_model_creation(self):
         # This may fail if langchain-google-genai not installed, skip gracefully
         try:
-            model = get_chat_model("gemini", api_key="fake-key")
+            model = get_chat_model("gemini", api_key="fake-key", model="gemini-2.0-flash")
             assert model is not None
         except ImportError:
             pytest.skip("langchain-google-genai not installed")
 
     def test_openai_model_creation(self):
         try:
-            model = get_chat_model("openai", api_key="sk-fake")
+            model = get_chat_model("openai", api_key="sk-fake", model="gpt-4o")
             assert model is not None
         except ImportError:
             pytest.skip("langchain-openai not installed")

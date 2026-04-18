@@ -172,28 +172,30 @@ async def generate_formula(
     api_key: str,
     columns: list[ColumnInfo],
     description: str,
-    model: Optional[str] = None
+    model: Optional[str] = None,
+    effort: Optional[str] = None
 ) -> str:
     """
     Generate a formula expression using AI.
-    
+
     Args:
         provider_name: AI provider ('gemini', 'openai', 'claude')
         api_key: API key for the provider
         columns: List of column information for context
         description: User's description of what to compute
         model: Optional specific model to use
-        
+        effort: Reasoning effort level or None
+
     Returns:
         Generated Python formula code
-        
+
     Raises:
         ValueError: If generation fails or formula is invalid
     """
     logger.info(f"Generating formula with {provider_name}, {len(columns)} columns")
-    
+
     # Get LLM
-    llm = get_chat_model(provider_name, api_key, model=model)
+    llm = get_chat_model(provider_name, api_key, model=model, effort=effort)
     
     # Build prompts
     system_prompt = FORMULA_SYSTEM_PROMPT

@@ -12,7 +12,7 @@ from .schemas import (
     SuggestionGraphState,
 )
 from .graph import create_suggestion_graph, run_suggestion_workflow
-from .providers import get_chat_model
+from .providers import get_chat_model, fetch_provider_models
 from .formula_generator import generate_formula, ColumnInfo, FormulaGenerateRequest
 
 __all__ = [
@@ -23,6 +23,7 @@ __all__ = [
     "create_suggestion_graph",
     "run_suggestion_workflow",
     "get_chat_model",
+    "fetch_provider_models",
     "generate_formula",
     "ColumnInfo",
     "FormulaGenerateRequest",

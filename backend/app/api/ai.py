@@ -21,7 +21,7 @@ from typing import Optional
 import logging
 
 from app.services.ai_service import get_ai_service, AIVisualizationService, AIRequest, ColumnMetadata
-from app.services.ai_graph import VisualizationSuggestion as GraphSuggestion
+from app.services.ai_graph import VisualizationSuggestion as GraphSuggestion, fetch_provider_models
 from app.services.data_service import get_data_service
 from app.models.schemas import APIResponse, VisualizationConfig
 
@@ -34,7 +34,8 @@ class SuggestRequest(BaseModel):
     dataset_id: str = Field(..., description="ID of the loaded dataset")
     provider: str = Field(..., description="AI provider: 'gemini', 'openai', or 'claude'")
     api_key: str = Field(..., description="API key for the selected provider")
-    model: Optional[str] = Field(None, description="Specific model to use (optional)")
+    model: str = Field(..., description="Model to use (e.g. 'gpt-4o', 'claude-sonnet-4-6')")
+    effort: Optional[str] = Field(None, description="Reasoning effort: 'low', 'medium', or 'high'")
     column_descriptions: dict[str, str] = Field(
         ..., 
         description="Map of column_name -> description (required for all columns)"
@@ -89,6 +90,42 @@ async def list_providers():
     ai_service = get_ai_service()
     providers = ai_service.get_available_providers()
     return APIResponse(success=True, data=providers)
+
+
+class FetchModelsRequest(BaseModel):
+    """Request body for dynamic model fetching."""
+    api_key: str = Field(..., description="API key for the provider")
+
+
+@router.post("/providers/{provider}/models", response_model=APIResponse)
+async def fetch_models(provider: str, request: FetchModelsRequest):
+    """Fetch available models from a provider's API in real-time.
+
+    Queries the provider's model-listing endpoint using the supplied API key
+    and returns models available to the user. Falls back to the hardcoded
+    catalog on failure.
+
+    Args:
+        provider: AI provider identifier ("gemini", "openai", or "claude").
+        request: Request body containing the provider API key.
+
+    Returns:
+        APIResponse with list of model dicts (id, name, description).
+    """
+    if provider not in ("gemini", "openai", "claude"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid provider '{provider}'. Must be 'gemini', 'openai', or 'claude'"
+        )
+
+    if not request.api_key or not request.api_key.strip():
+        raise HTTPException(status_code=400, detail="API key is required")
+
+    models, error = await fetch_provider_models(provider, request.api_key.strip())
+    return APIResponse(
+        success=True,
+        data={"models": models, "fetched": error is None, "error": error},
+    )
 
 
 @router.post("/suggest", response_model=APIResponse)
@@ -208,7 +245,8 @@ async def suggest_visualizations(request: SuggestRequest):
             guidance_text=request.guidance_text,
             existing_visualizations=request.existing_visualization_titles,
             max_suggestions=request.max_suggestions,
-            model=request.model  # Pass user-selected model to provider
+            model=request.model,
+            effort=request.effort,
         )
         
         # Get suggestions
@@ -310,7 +348,8 @@ class FormulaGenerateApiRequest(BaseModel):
     """Request for AI formula generation."""
     provider: str = Field(..., description="AI provider: 'gemini', 'openai', or 'claude'")
     api_key: str = Field(..., description="API key for the selected provider")
-    model: Optional[str] = Field(None, description="Specific model to use (optional)")
+    model: str = Field(..., description="Model to use (e.g. 'gpt-4o', 'claude-sonnet-4-6')")
+    effort: Optional[str] = Field(None, description="Reasoning effort: 'low', 'medium', or 'high'")
     columns: list[dict] = Field(
         ..., 
         description="List of column info: [{name, description, data_type, stats}]"
@@ -421,7 +460,8 @@ async def generate_formula_endpoint(request: FormulaGenerateApiRequest):
             api_key=request.api_key,
             columns=columns,
             description=request.description,
-            model=request.model
+            model=request.model,
+            effort=request.effort
         )
         
         return APIResponse(

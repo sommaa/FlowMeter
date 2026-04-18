@@ -40,6 +40,7 @@ class TestSuggestVisualizationsValidation:
             "dataset_id": "nonexistent",
             "provider": "openai",
             "api_key": "sk-test",
+            "model": "gpt-4o",
             "column_descriptions": {},
             "guidance_text": "analyze this",
         }
@@ -59,6 +60,7 @@ class TestSuggestVisualizationsValidation:
                 "dataset_id": "ds1",
                 "provider": "invalid_provider",
                 "api_key": "sk-test",
+                "model": "gpt-4o",
                 "column_descriptions": {"x": "variable"},
                 "guidance_text": "analyze this",
             }
@@ -77,6 +79,7 @@ class TestSuggestVisualizationsValidation:
                 "dataset_id": "ds1",
                 "provider": "openai",
                 "api_key": "",
+                "model": "gpt-4o",
                 "column_descriptions": {"x": "var"},
                 "guidance_text": "test",
             }
@@ -92,6 +95,7 @@ class TestGenerateFormulaValidation:
         payload = {
             "provider": "invalid",
             "api_key": "key",
+            "model": "gpt-4o",
             "columns": [{"name": "x", "description": "var", "data_type": "numeric"}],
             "description": "compute something",
         }
@@ -102,6 +106,7 @@ class TestGenerateFormulaValidation:
         payload = {
             "provider": "openai",
             "api_key": "key",
+            "model": "gpt-4o",
             "columns": [{"name": "x", "description": "var", "data_type": "numeric"}],
             "description": "",
         }
@@ -112,6 +117,7 @@ class TestGenerateFormulaValidation:
         payload = {
             "provider": "openai",
             "api_key": "key",
+            "model": "gpt-4o",
             "columns": [],
             "description": "compute something",
         }

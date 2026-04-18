@@ -521,8 +521,6 @@ export interface AIModelInfo {
 export interface AIProviderInfo {
   id: AIProvider;
   name: string;
-  model: string;  // Default model
-  models: AIModelInfo[];  // Available models for selection
 }
 
 export interface ColumnMetadata {
@@ -554,11 +552,14 @@ export interface AISuggestion {
   reasoning: string;
 }
 
+export type AIEffort = 'low' | 'medium' | 'high';
+
 export interface AISuggestRequest {
   dataset_id: string;
   provider: AIProvider;
   api_key: string;
-  model?: string;  // Optional model override
+  model: string;
+  effort?: AIEffort;
   column_descriptions: Record<string, string>;
   guidance_text: string;
   existing_visualization_titles?: string[];

@@ -191,20 +191,32 @@ export const FormulaEditorModal: React.FC<FormulaEditorModalProps> = ({
     const [aiError, setAiError] = useState<string | null>(null);
 
     // AI Settings State
-    // We store the full provider info (from backend) plus the locally stored API key (if any)
     const [availableProviders, setAvailableProviders] = useState<Array<import('@/types').AIProviderInfo & { apiKey?: string }>>([]);
-    const [aiSettings, setAiSettings] = useState<{ provider: AIProvider; apiKey: string; model?: string } | null>(null);
+    const [aiSettings, setAiSettings] = useState<{ provider: AIProvider; apiKey: string; model?: string; effort?: 'low' | 'medium' | 'high' } | null>(null);
     const [selectedModel, setSelectedModel] = useState<string>('');
+    const [providerModels, setProviderModels] = useState<import('@/types').AIModelInfo[]>([]);
+
+    // Fetch models for a given provider + key
+    const fetchModelsForProvider = async (providerId: AIProvider, apiKey: string) => {
+        if (!apiKey) {
+            setProviderModels([]);
+            return;
+        }
+        try {
+            const models = await aiApi.fetchProviderModels(providerId, apiKey);
+            setProviderModels(models);
+        } catch {
+            setProviderModels([]);
+        }
+    };
 
     // Load AI settings on mount
     useEffect(() => {
         if (isOpen) {
             const loadProviders = async () => {
                 try {
-                    // Fetch supported providers/models from backend
                     const providersInfo = await aiApi.getProviders();
 
-                    // Map all providers, attaching key if present
                     const allProviders: Array<import('@/types').AIProviderInfo & { apiKey?: string }> = providersInfo.map(p => ({
                         ...p,
                         apiKey: getStoredKey(p.id) || undefined
@@ -213,26 +225,27 @@ export const FormulaEditorModal: React.FC<FormulaEditorModalProps> = ({
                     setAvailableProviders(allProviders);
 
                     if (allProviders.length > 0) {
-                        // Restore previous selection or default to first
-                        // We check if current aiSettings match any configured provider
                         const currentFn = (p: typeof aiSettings) => p && allProviders.some(x => x.id === p.provider);
 
                         if (!currentFn(aiSettings)) {
-                            // Default to first provider with a key, or just the first provider
                             const defaultProvider = allProviders.find(p => p.apiKey) || allProviders[0];
                             const savedModel = getStoredModel(defaultProvider.id);
-
-                            // Prefer saved model, then default model from backend, then first available model
-                            const modelId = savedModel && defaultProvider.models.some(m => m.id === savedModel)
-                                ? savedModel
-                                : (defaultProvider.model || defaultProvider.models[0]?.id);
+                            const savedEffort = localStorage.getItem('ai_effort');
+                            const effort = savedEffort && ['low', 'medium', 'high'].includes(savedEffort)
+                                ? savedEffort as 'low' | 'medium' | 'high'
+                                : undefined;
 
                             setAiSettings({
                                 provider: defaultProvider.id,
                                 apiKey: defaultProvider.apiKey || '',
-                                model: modelId
+                                model: savedModel || undefined,
+                                effort
                             });
-                            setSelectedModel(modelId);
+                            setSelectedModel(savedModel || '');
+
+                            if (defaultProvider.apiKey) {
+                                fetchModelsForProvider(defaultProvider.id, defaultProvider.apiKey);
+                            }
                         }
                     } else {
                         setAiSettings(null);
@@ -250,18 +263,21 @@ export const FormulaEditorModal: React.FC<FormulaEditorModalProps> = ({
     const handleProviderChange = (providerId: AIProvider) => {
         const newSettings = availableProviders.find(p => p.id === providerId);
         if (newSettings) {
-            // Default to stored model for that provider, or first available
             const savedModel = getStoredModel(providerId);
-            const model = savedModel && newSettings.models.some(m => m.id === savedModel)
-                ? savedModel
-                : (newSettings.model || newSettings.models[0]?.id);
 
-            setAiSettings({
+            setAiSettings(prev => ({
                 provider: newSettings.id,
                 apiKey: newSettings.apiKey || '',
-                model
-            });
-            setSelectedModel(model);
+                model: savedModel || undefined,
+                effort: prev?.effort
+            }));
+            setSelectedModel(savedModel || '');
+
+            if (newSettings.apiKey) {
+                fetchModelsForProvider(newSettings.id, newSettings.apiKey);
+            } else {
+                setProviderModels([]);
+            }
         }
     };
 
@@ -369,6 +385,7 @@ export const FormulaEditorModal: React.FC<FormulaEditorModalProps> = ({
                 provider: aiSettings.provider,
                 api_key: aiSettings.apiKey,
                 model: selectedModel || undefined,
+                effort: aiSettings.effort,
                 columns,
                 description: aiDescription,
             });
@@ -537,14 +554,11 @@ result2 = col['Tag1'] - col['Tag2']`}
                                             <SelectValue placeholder="Select model" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            {(() => {
-                                                const currentProvider = availableProviders.find(p => p.id === aiSettings?.provider);
-                                                return currentProvider?.models.map((m) => (
-                                                    <SelectItem key={m.id} value={m.id} className="text-xs">
-                                                        <span>{m.name}</span>
-                                                    </SelectItem>
-                                                ))
-                                            })()}
+                                            {providerModels.map((m) => (
+                                                <SelectItem key={m.id} value={m.id} className="text-xs">
+                                                    <span>{m.name}</span>
+                                                </SelectItem>
+                                            ))}
                                         </SelectContent>
                                     </Select>
                                 </div>

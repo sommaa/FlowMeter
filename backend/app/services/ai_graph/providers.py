@@ -5,16 +5,47 @@ Provides a unified interface to create chat models for:
 - Gemini (Google)
 - OpenAI
 - Anthropic (Claude)
+
+Supports dynamic model fetching from provider APIs when an API key is
+available, with fallback to a hardcoded catalog.
 """
 
+import logging
 from typing import Optional, Literal
 
+import httpx
 from langchain_core.language_models import BaseChatModel
+
+logger = logging.getLogger(__name__)
 
 
 # Supported AI provider identifiers.
 # Each provider has different capabilities, pricing, and model options.
 ProviderType = Literal["gemini", "openai", "claude"]
+
+# Reasoning effort levels supported across providers.
+EffortType = Literal["low", "medium", "high"]
+
+# Anthropic: map effort to extended thinking budget_tokens
+_ANTHROPIC_EFFORT_BUDGET = {
+    "low": 2048,
+    "medium": 8192,
+    "high": 32768,
+}
+
+# OpenAI: map effort to reasoning_effort parameter (o-series models)
+_OPENAI_EFFORT_MAP = {
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+}
+
+# Google: map effort to thinking budget
+_GEMINI_EFFORT_BUDGET = {
+    "low": 2048,
+    "medium": 8192,
+    "high": 32768,
+}
 
 
 # ============= Provider Factory =============
@@ -22,8 +53,8 @@ ProviderType = Literal["gemini", "openai", "claude"]
 def get_chat_model(
     provider: ProviderType,
     api_key: str,
-    model: Optional[str] = None,
-    temperature: float = 0.7,
+    model: str,
+    effort: Optional[EffortType] = None,
     max_tokens: int = 4096
 ) -> BaseChatModel:
     """Create a LangChain chat model for the specified AI provider.
@@ -32,56 +63,50 @@ def get_chat_model(
     class based on the provider. Handles provider-specific configuration
     differences internally.
 
-    Default models by provider:
-        - gemini: gemini-3-flash
-        - openai: gpt-5-2
-        - claude: claude-sonnet-4-6-20260217
-
     Args:
         provider: AI provider identifier ("gemini", "openai", or "claude").
         api_key: API key for authenticating with the provider.
-        model: Specific model name to use. If None, uses the provider's
-            default model.
-        temperature: Sampling temperature for generation (0.0-1.0).
-            Lower values produce more deterministic output.
+        model: Model name to use (e.g. "gpt-4o", "claude-sonnet-4-6").
+        effort: Reasoning effort level. Maps to provider-specific thinking
+            features (Anthropic extended thinking, OpenAI reasoning_effort,
+            Gemini thinking budget). None means no extra reasoning.
         max_tokens: Maximum tokens in the generated response.
 
     Returns:
         Configured BaseChatModel instance ready for invocation.
 
     Raises:
-        ValueError: If the provider is not one of the supported types.
+        ValueError: If the provider is not one of the supported types,
+            or if model is not provided.
 
     Example:
-        >>> model = get_chat_model("openai", api_key="sk-...", temperature=0.5)
+        >>> model = get_chat_model("openai", api_key="sk-...", model="gpt-4o", effort="high")
         >>> response = model.invoke([HumanMessage(content="Hello")])
     """
+    if not model:
+        raise ValueError("A model must be selected. Fetch available models from the provider first.")
     if provider == "gemini":
-        return _create_gemini_model(api_key, model, temperature, max_tokens)
+        return _create_gemini_model(api_key, model, effort, max_tokens)
     elif provider == "openai":
-        return _create_openai_model(api_key, model, temperature, max_tokens)
+        return _create_openai_model(api_key, model, effort, max_tokens)
     elif provider == "claude":
-        return _create_claude_model(api_key, model, temperature, max_tokens)
+        return _create_claude_model(api_key, model, effort, max_tokens)
     else:
         raise ValueError(f"Unsupported provider: {provider}. Use 'gemini', 'openai', or 'claude'")
 
 
 def _create_gemini_model(
     api_key: str,
-    model: Optional[str],
-    temperature: float,
+    model: str,
+    effort: Optional[EffortType],
     max_tokens: int
 ) -> BaseChatModel:
     """Create a Google Gemini chat model instance.
 
-    Handles Gemini-specific configuration including the system message
-    conversion quirk where system messages must be converted to human
-    messages for proper handling.
-
     Args:
         api_key: Google AI API key.
-        model: Model name or None for default (gemini-2.0-flash).
-        temperature: Sampling temperature.
+        model: Model name (e.g. "gemini-2.0-flash").
+        effort: Reasoning effort level or None.
         max_tokens: Maximum output tokens.
 
     Returns:
@@ -89,27 +114,34 @@ def _create_gemini_model(
     """
     from langchain_google_genai import ChatGoogleGenerativeAI
 
-    return ChatGoogleGenerativeAI(
-        model=model or "gemini-3-flash",
+    kwargs: dict = dict(
+        model=model,
         google_api_key=api_key,
-        temperature=temperature,
+        temperature=0.95,
         max_output_tokens=max_tokens,
-        convert_system_message_to_human=True,  # Gemini quirk
+        convert_system_message_to_human=True,
     )
+
+    if effort:
+        budget = _GEMINI_EFFORT_BUDGET[effort]
+        kwargs["thinking"] = {"thinking_budget": budget}
+
+    return ChatGoogleGenerativeAI(**kwargs)
 
 
 def _create_openai_model(
     api_key: str,
-    model: Optional[str],
-    temperature: float,
+    model: str,
+    effort: Optional[EffortType],
     max_tokens: int
 ) -> BaseChatModel:
     """Create an OpenAI chat model instance.
 
     Args:
         api_key: OpenAI API key.
-        model: Model name or None for default (gpt-4o).
-        temperature: Sampling temperature.
+        model: Model name (e.g. "gpt-4o").
+        effort: Reasoning effort level or None. Applied via reasoning_effort
+            model kwarg for o-series models; ignored for GPT models.
         max_tokens: Maximum output tokens.
 
     Returns:
@@ -117,26 +149,32 @@ def _create_openai_model(
     """
     from langchain_openai import ChatOpenAI
 
+    model_kwargs: dict = {}
+    if effort:
+        model_kwargs["reasoning_effort"] = _OPENAI_EFFORT_MAP[effort]
+
     return ChatOpenAI(
-        model=model or "gpt-5-2",
+        model=model,
         api_key=api_key,
-        temperature=temperature,
+        temperature=0.95,
         max_tokens=max_tokens,
+        model_kwargs=model_kwargs if model_kwargs else {},
     )
 
 
 def _create_claude_model(
     api_key: str,
-    model: Optional[str],
-    temperature: float,
+    model: str,
+    effort: Optional[EffortType],
     max_tokens: int
 ) -> BaseChatModel:
     """Create an Anthropic Claude chat model instance.
 
     Args:
         api_key: Anthropic API key.
-        model: Model name or None for default (claude-sonnet-4-20250514).
-        temperature: Sampling temperature.
+        model: Model name (e.g. "claude-sonnet-4-6").
+        effort: Reasoning effort level or None. Enables extended thinking
+            with a budget proportional to the effort level.
         max_tokens: Maximum output tokens.
 
     Returns:
@@ -144,12 +182,20 @@ def _create_claude_model(
     """
     from langchain_anthropic import ChatAnthropic
 
-    return ChatAnthropic(
-        model=model or "claude-sonnet-4-6",
+    kwargs: dict = dict(
+        model=model,
         api_key=api_key,
-        temperature=temperature,
+        temperature=0.95,
         max_tokens=max_tokens,
     )
+
+    if effort:
+        budget = _ANTHROPIC_EFFORT_BUDGET[effort]
+        kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
+        # max_tokens must accommodate both thinking and output
+        kwargs["max_tokens"] = max_tokens + budget
+
+    return ChatAnthropic(**kwargs)
 
 
 # ============= Structured Output =============
@@ -158,145 +204,186 @@ def get_structured_model(
     provider: ProviderType,
     api_key: str,
     output_schema: type,
-    model: Optional[str] = None,
-    temperature: float = 0.7
+    model: str,
+    effort: Optional[EffortType] = None,
 ) -> BaseChatModel:
     """Create a chat model configured for structured JSON output.
 
     Wraps the base chat model with LangChain's ``with_structured_output``
-    to ensure responses conform to a Pydantic schema. The underlying
-    implementation uses the model's native JSON mode or function calling
-    capabilities depending on provider support.
+    to ensure responses conform to a Pydantic schema.
 
     Args:
         provider: AI provider identifier.
         api_key: API key for authentication.
         output_schema: Pydantic model class defining the expected output
-            structure. The model will be constrained to produce valid JSON
-            matching this schema.
-        model: Specific model name or None for default.
-        temperature: Sampling temperature for generation.
+            structure.
+        model: Model name to use.
+        effort: Reasoning effort level or None.
 
     Returns:
-        Chat model configured to produce structured output that validates
-        against the provided Pydantic schema.
-
-    Example:
-        >>> from pydantic import BaseModel
-        >>> class Response(BaseModel):
-        ...     answer: str
-        ...     confidence: float
-        >>> model = get_structured_model("openai", api_key, Response)
-        >>> result = model.invoke([HumanMessage(content="What is 2+2?")])
-        >>> result.answer
-        "4"
+        Chat model configured to produce structured output.
     """
     base_model = get_chat_model(
         provider=provider,
         api_key=api_key,
         model=model,
-        temperature=temperature,
+        effort=effort,
     )
-
-    # Configure structured output
-    # This uses the model's native JSON mode or function calling
     return base_model.with_structured_output(output_schema)
 
 
-# ============= Model Info =============
-
-# Model catalog with metadata for each supported provider.
-# Each model entry contains:
-#   - id: API model identifier string
-#   - name: Human-readable display name
-#   - description: Brief description of model characteristics
-#   - default: (optional) True if this is the default model for the provider
-#
-# Updated January 2026 - models are periodically refreshed as providers release updates.
-MODELS = {
-    "gemini": [
-        {"id": "gemini-3-flash", "name": "Gemini 3 Flash", "description": "Fast, next-gen architecture", "default": True},
-        {"id": "gemini-3-pro", "name": "Gemini 3 Pro", "description": "Most capable, large context"},
-        {"id": "gemini-3-deep-think", "name": "Gemini 3 Deep Think", "description": "Advanced reasoning capabilities"},
-        {"id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro", "description": "Previous best pro model"},
-        {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash", "description": "Legacy fast model"},
-    ],
-    "openai": [
-        {"id": "gpt-5-2", "name": "GPT-5.2", "description": "Flagship, high intelligence", "default": True},
-        {"id": "gpt-5-mini", "name": "GPT-5 Mini", "description": "Fast, cost-effective"},
-        {"id": "gpt-5-3-codex", "name": "GPT-5.3 Codex", "description": "Optimized for coding & reasoning"},
-        {"id": "o3-mini", "name": "o3 Mini", "description": "Advanced reasoning, legacy"},
-        {"id": "gpt-4o", "name": "GPT-4o", "description": "Legacy multimodal model"},
-    ],
-    "claude": [
-        {"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6", "description": "Latest, state-of-the-art", "default": True},
-        {"id": "claude-opus-4-6", "name": "Claude Opus 4.6", "description": "Maximum capability"},
-        {"id": "claude-sonnet-4-5", "name": "Claude Sonnet 4.5", "description": "Previous generation"},
-        {"id": "claude-haiku-4-5", "name": "Claude Haiku 4.5", "description": "Fast & efficient"},
-    ],
-}
 
 
-def get_default_model(provider: ProviderType) -> str:
-    """Get the default model identifier for a provider.
+# ============= Dynamic Model Fetching =============
 
-    Returns the model ID marked as default in the MODELS catalog,
-    or the first model if none is marked as default.
+_FETCH_TIMEOUT = 10.0
+
+# OpenAI model prefixes that are known to NOT be chat/reasoning models.
+# New chat model families (gpt-6, o5, etc.) pass through automatically.
+_OPENAI_NON_CHAT_PREFIXES = (
+    "text-embedding-", "dall-e-", "whisper-", "tts-",
+    "davinci-", "babbage-", "curie-", "ada-",
+    "text-moderation-", "omni-moderation-",
+)
+
+
+async def _fetch_openai_models(api_key: str) -> list[dict]:
+    """Fetch available chat models from the OpenAI API.
+
+    Uses a negative filter: excludes known non-chat model families
+    (embeddings, TTS, DALL-E, whisper, legacy completions, moderation,
+    fine-tuned models) so that new chat/reasoning families appear
+    automatically.
+    """
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            "https://api.openai.com/v1/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=_FETCH_TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    models = []
+    for m in data.get("data", []):
+        mid = m["id"]
+        # Exclude fine-tuned models
+        if mid.startswith("ft:"):
+            continue
+        # Exclude known non-chat model families
+        if any(mid.startswith(p) for p in _OPENAI_NON_CHAT_PREFIXES):
+            continue
+
+        models.append({
+            "id": mid,
+            "name": mid,
+            "description": f"Owned by {m.get('owned_by', 'openai')}",
+        })
+
+    models.sort(key=lambda x: x["id"])
+    return models
+
+
+async def _fetch_anthropic_models(api_key: str) -> list[dict]:
+    """Fetch available models from the Anthropic API.
+
+    Uses a high limit to avoid pagination for the typical model count.
+    """
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            "https://api.anthropic.com/v1/models",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+            },
+            params={"limit": 100},
+            timeout=_FETCH_TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    models = []
+    for m in data.get("data", []):
+        models.append({
+            "id": m["id"],
+            "name": m.get("display_name", m["id"]),
+            "description": f"Context: {m.get('max_input_tokens', 'N/A')} tokens",
+        })
+
+    return models
+
+
+async def _fetch_gemini_models(api_key: str) -> list[dict]:
+    """Fetch available generative models from the Google Gemini API.
+
+    Only includes models that support the ``generateContent`` method.
+    Paginates through all pages if needed.
+    """
+    all_raw: list[dict] = []
+    params: dict = {"key": api_key, "pageSize": 100}
+
+    async with httpx.AsyncClient() as client:
+        while True:
+            resp = await client.get(
+                "https://generativelanguage.googleapis.com/v1beta/models",
+                params=params,
+                timeout=_FETCH_TIMEOUT,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            all_raw.extend(data.get("models", []))
+
+            next_token = data.get("nextPageToken")
+            if not next_token:
+                break
+            params["pageToken"] = next_token
+
+    models = []
+    for m in all_raw:
+        methods = m.get("supportedGenerationMethods", [])
+        if "generateContent" not in methods:
+            continue
+
+        model_id = m["name"].removeprefix("models/")
+        models.append({
+            "id": model_id,
+            "name": m.get("displayName", model_id),
+            "description": m.get("description", "")[:120],
+        })
+
+    return models
+
+
+async def fetch_provider_models(
+    provider: ProviderType, api_key: str
+) -> tuple[list[dict], str | None]:
+    """Fetch models dynamically from a provider's API.
+
+    Calls the provider's model-listing endpoint using the supplied API key
+    and returns a formatted list.
 
     Args:
         provider: AI provider identifier.
+        api_key: API key for authenticating with the provider.
 
     Returns:
-        Model ID string for the default model, or empty string if
-        the provider has no models configured.
-
-    Example:
-        >>> get_default_model("openai")
-        "gpt-4o"
+        Tuple of (models list, error message or None).
+        On failure the models list is empty and error contains the reason.
     """
-    models = MODELS.get(provider, [])
-    for model in models:
-        if model.get("default"):
-            return model["id"]
-    return models[0]["id"] if models else ""
+    fetchers = {
+        "openai": _fetch_openai_models,
+        "gemini": _fetch_gemini_models,
+        "claude": _fetch_anthropic_models,
+    }
 
+    fetcher = fetchers.get(provider)
+    if not fetcher:
+        return [], f"Unknown provider: {provider}"
 
-def get_available_models(provider: ProviderType) -> list[dict]:
-    """Get the full list of available models for a provider with metadata.
-
-    Returns model entries with display names and descriptions suitable
-    for populating UI model selection dropdowns.
-
-    Args:
-        provider: AI provider identifier.
-
-    Returns:
-        List of model metadata dicts with keys: id, name, description,
-        and optionally 'default'. Returns empty list for unknown providers.
-
-    Example:
-        >>> models = get_available_models("gemini")
-        >>> models[0]
-        {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash", ...}
-    """
-    return MODELS.get(provider, [])
-
-
-def get_model_ids(provider: ProviderType) -> list[str]:
-    """Get the list of model ID strings for a provider.
-
-    Convenience function that extracts just the model IDs without
-    metadata, useful for validation or simple selection lists.
-
-    Args:
-        provider: AI provider identifier.
-
-    Returns:
-        List of model ID strings. Returns empty list for unknown providers.
-
-    Example:
-        >>> get_model_ids("claude")
-        ["claude-sonnet-4-20250514", "claude-opus-4-20250514", ...]
-    """
-    return [m["id"] for m in MODELS.get(provider, [])]
+    try:
+        models = await fetcher(api_key)
+        return models, None
+    except Exception as e:
+        logger.warning("Failed to fetch models from %s: %s", provider, e)
+        return [], str(e)
 

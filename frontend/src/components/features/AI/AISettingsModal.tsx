@@ -17,7 +17,7 @@
  * @module components/features/AI/AISettingsModal
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     Dialog,
     DialogContent,
@@ -35,9 +35,10 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Eye, EyeOff, Key, Sparkles, ExternalLink, Check } from 'lucide-react';
-import { AIProvider, AIProviderInfo } from '@/types';
+import { Eye, EyeOff, Key, Sparkles, ExternalLink, Check, RefreshCw } from 'lucide-react';
+import { AIProvider, AIModelInfo, AIProviderInfo, AIEffort } from '@/types';
 import { cn } from '@/lib/utils';
+import { aiApi } from '@/services/api';
 
 /**
  * Props for the AISettingsModal component.
@@ -52,7 +53,7 @@ import { cn } from '@/lib/utils';
 interface Props {
     isOpen: boolean;
     onClose: () => void;
-    onContinue: (provider: AIProvider, apiKey: string, model?: string, maxSuggestions?: number) => void;
+    onContinue: (provider: AIProvider, apiKey: string, model: string, effort?: AIEffort, maxSuggestions?: number) => void;
     providers: AIProviderInfo[];
     isLoading?: boolean;
 }
@@ -164,32 +165,82 @@ export const AISettingsModal: React.FC<Props> = ({
     const [apiKey, setApiKey] = useState('');
     const [showKey, setShowKey] = useState(false);
     const [maxSuggestions, setMaxSuggestions] = useState(5);
+    const [dynamicModels, setDynamicModels] = useState<AIModelInfo[] | null>(null);
+    const [isFetchingModels, setIsFetchingModels] = useState(false);
+    const [effort, setEffort] = useState<AIEffort | undefined>(undefined);
+    const fetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const providerInfo = providers.find(p => p.id === provider);
+    const displayModels = dynamicModels ?? [];
+
+    const fetchModels = useCallback(async (prov: AIProvider, key: string) => {
+        if (!key.trim()) {
+            setDynamicModels(null);
+            return;
+        }
+        setIsFetchingModels(true);
+        try {
+            const models = await aiApi.fetchProviderModels(prov, key.trim());
+            setDynamicModels(models.length > 0 ? models : null);
+        } catch {
+            setDynamicModels(null);
+        } finally {
+            setIsFetchingModels(false);
+        }
+    }, []);
 
     // Load saved key and model when provider changes
     useEffect(() => {
+        setDynamicModels(null);
+        setSelectedModel('');
+
         const savedKey = localStorage.getItem(`ai_key_${provider}`);
+        let loadedKey = '';
         if (savedKey) {
             try {
-                setApiKey(atob(savedKey));
+                loadedKey = atob(savedKey);
             } catch {
-                setApiKey('');
+                // ignore
             }
-        } else {
-            setApiKey('');
         }
+        setApiKey(loadedKey);
 
-        // Load saved model or use default
+        // Restore saved model selection
         const savedModel = localStorage.getItem(`ai_model_${provider}`);
-        if (savedModel && providerInfo?.models?.some(m => m.id === savedModel)) {
+        if (savedModel) {
             setSelectedModel(savedModel);
-        } else {
-            setSelectedModel(providerInfo?.model || '');
         }
-    }, [provider, providerInfo]);
 
-    // Load saved max suggestions on mount
+        // Fetch live models if we have a saved key
+        if (loadedKey) {
+            fetchModels(provider, loadedKey);
+        }
+    }, [provider, fetchModels]);
+
+    // Debounced fetch when API key changes (user typing/pasting)
+    useEffect(() => {
+        if (fetchTimerRef.current) clearTimeout(fetchTimerRef.current);
+        if (!apiKey.trim()) {
+            setDynamicModels(null);
+            return;
+        }
+        fetchTimerRef.current = setTimeout(() => {
+            fetchModels(provider, apiKey);
+        }, 600);
+        return () => {
+            if (fetchTimerRef.current) clearTimeout(fetchTimerRef.current);
+        };
+    }, [apiKey, provider, fetchModels]);
+
+    // When dynamic models load, preserve the selected model if it still exists
+    useEffect(() => {
+        if (!dynamicModels) return;
+        if (dynamicModels.some(m => m.id === selectedModel)) return;
+        // Selected model not in new list — pick the first one
+        setSelectedModel(dynamicModels[0]?.id || '');
+    }, [dynamicModels, selectedModel]);
+
+    // Load saved max suggestions and effort on mount
     useEffect(() => {
         const savedMaxSuggestions = localStorage.getItem('ai_max_suggestions');
         if (savedMaxSuggestions) {
@@ -198,10 +249,14 @@ export const AISettingsModal: React.FC<Props> = ({
                 setMaxSuggestions(parsed);
             }
         }
+        const savedEffort = localStorage.getItem('ai_effort');
+        if (savedEffort && ['low', 'medium', 'high'].includes(savedEffort)) {
+            setEffort(savedEffort as AIEffort);
+        }
     }, []);
 
     const handleContinue = () => {
-        // Save key and model
+        // Save key, model, and effort
         if (apiKey.trim()) {
             localStorage.setItem(`ai_key_${provider}`, btoa(apiKey.trim()));
         }
@@ -209,7 +264,12 @@ export const AISettingsModal: React.FC<Props> = ({
             localStorage.setItem(`ai_model_${provider}`, selectedModel);
         }
         localStorage.setItem('ai_max_suggestions', String(maxSuggestions));
-        onContinue(provider, apiKey.trim(), selectedModel, maxSuggestions);
+        if (effort) {
+            localStorage.setItem('ai_effort', effort);
+        } else {
+            localStorage.removeItem('ai_effort');
+        }
+        onContinue(provider, apiKey.trim(), selectedModel, effort, maxSuggestions);
     };
 
     return (
@@ -248,9 +308,6 @@ export const AISettingsModal: React.FC<Props> = ({
                                     <div className="flex-shrink-0">{PROVIDER_ICONS[p.id]}</div>
                                     <div className="flex-1">
                                         <div className="font-medium">{p.name}</div>
-                                        <div className="text-xs text-muted-foreground">
-                                            {p.models?.find(m => m.id === (provider === p.id ? selectedModel : p.model))?.name || p.model}
-                                        </div>
                                     </div>
                                     {provider === p.id && (
                                         <Check className="w-4 h-4 text-primary" />
@@ -261,19 +318,31 @@ export const AISettingsModal: React.FC<Props> = ({
                     </div>
 
                     {/* Model Selection */}
-                    {providerInfo?.models && providerInfo.models.length > 0 && (
+                    {displayModels.length > 0 && (
                         <div className="space-y-2">
-                            <Label htmlFor="model-select">Model</Label>
+                            <div className="flex items-center justify-between">
+                                <Label htmlFor="model-select">Model</Label>
+                                <div className="flex items-center gap-1.5">
+                                    {dynamicModels && (
+                                        <span className="text-xs text-muted-foreground">
+                                            {dynamicModels.length} models
+                                        </span>
+                                    )}
+                                    {isFetchingModels && (
+                                        <RefreshCw className="w-3 h-3 text-muted-foreground animate-spin" />
+                                    )}
+                                </div>
+                            </div>
                             <Select
                                 value={selectedModel}
                                 onValueChange={setSelectedModel}
-                                disabled={isLoading}
+                                disabled={isLoading || isFetchingModels}
                             >
                                 <SelectTrigger id="model-select">
-                                    <SelectValue placeholder="Select a model" />
+                                    <SelectValue placeholder={isFetchingModels ? "Fetching models..." : "Select a model"} />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {providerInfo.models.map(m => (
+                                    {displayModels.map(m => (
                                         <SelectItem key={m.id} value={m.id}>
                                             <div className="flex flex-col">
                                                 <span>{m.name}</span>
@@ -285,6 +354,34 @@ export const AISettingsModal: React.FC<Props> = ({
                             </Select>
                         </div>
                     )}
+
+                    {/* Reasoning Effort */}
+                    <div className="space-y-2">
+                        <Label>Reasoning Effort</Label>
+                        <div className="grid grid-cols-4 gap-2">
+                            {([undefined, 'low', 'medium', 'high'] as const).map((level) => (
+                                <button
+                                    key={level ?? 'none'}
+                                    type="button"
+                                    onClick={() => setEffort(level as AIEffort | undefined)}
+                                    disabled={isLoading}
+                                    className={cn(
+                                        "px-3 py-1.5 text-sm rounded-md border transition-all",
+                                        "hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-primary/20",
+                                        effort === level
+                                            ? "border-primary bg-primary/5 font-medium"
+                                            : "border-border",
+                                        isLoading && "opacity-50 cursor-not-allowed"
+                                    )}
+                                >
+                                    {level ? level.charAt(0).toUpperCase() + level.slice(1) : 'Default'}
+                                </button>
+                            ))}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                            Higher effort enables extended thinking for better results but uses more tokens.
+                        </p>
+                    </div>
 
                     {/* API Key */}
                     <div className="space-y-2">
@@ -355,7 +452,7 @@ export const AISettingsModal: React.FC<Props> = ({
                     <Button
                         variant="primary"
                         onClick={handleContinue}
-                        disabled={!apiKey.trim() || isLoading}
+                        disabled={!apiKey.trim() || !selectedModel || isLoading}
                     >
                         {isLoading ? 'Generating...' : 'Generate Suggestions'}
                     </Button>

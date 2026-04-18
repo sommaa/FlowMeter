@@ -38,6 +38,7 @@ import { aiApi } from '@/services/api';
 import {
     AIProvider,
     AIProviderInfo,
+    AIEffort,
     AISuggestion,
     VisualizationConfig,
 } from '@/types';
@@ -162,7 +163,7 @@ export const AIWizardModal: React.FC<Props> = ({
     // Provider state
     const [providers, setProviders] = useState<AIProviderInfo[]>([]);
     const [selectedProvider, setSelectedProvider] = useState<AIProvider>('gemini');
-    const [selectedModel, setSelectedModel] = useState<string | undefined>();
+    const [selectedModel, setSelectedModel] = useState<string>('');
     const [apiKey, setApiKey] = useState('');
 
     // Suggestions state
@@ -172,6 +173,7 @@ export const AIWizardModal: React.FC<Props> = ({
     const [appliedIndices, setAppliedIndices] = useState<Set<number>>(new Set());
     const [appliedConfigs, setAppliedConfigs] = useState<VisualizationConfig[]>([]);
     const [maxSuggestions, setMaxSuggestions] = useState(5);
+    const [selectedEffort, setSelectedEffort] = useState<AIEffort | undefined>(undefined);
 
     // Load providers on mount
     useEffect(() => {
@@ -206,13 +208,14 @@ export const AIWizardModal: React.FC<Props> = ({
     }, [currentDataset, columnDescriptions, guidanceText]);
 
     // Generate suggestions
-    const generateSuggestions = async (provider: AIProvider, key: string, model?: string, maxSuggestionsParam?: number) => {
+    const generateSuggestions = async (provider: AIProvider, key: string, model: string, effort?: AIEffort, maxSuggestionsParam?: number) => {
         if (!currentDataset) return;
 
         const suggestionsCount = maxSuggestionsParam ?? 5;
         setMaxSuggestions(suggestionsCount);
         setSelectedProvider(provider);
-        setSelectedModel(model);  // Store selected model for retries
+        setSelectedModel(model);
+        setSelectedEffort(effort);
         setApiKey(key);
         setIsLoading(true);
         setError(null);
@@ -223,7 +226,8 @@ export const AIWizardModal: React.FC<Props> = ({
                 dataset_id: currentDataset.id,
                 provider,
                 api_key: key,
-                model,  // Pass selected model to API
+                model,
+                effort,
                 column_descriptions: columnDescriptions,
                 guidance_text: guidanceText,
                 existing_visualization_titles: visualizations.map(v => v.title),
@@ -274,7 +278,7 @@ export const AIWizardModal: React.FC<Props> = ({
     // Retry generation
     const handleRetry = () => {
         if (apiKey) {
-            generateSuggestions(selectedProvider, apiKey, selectedModel, maxSuggestions);
+            generateSuggestions(selectedProvider, apiKey, selectedModel, selectedEffort, maxSuggestions);
         } else {
             setStep('settings');
         }

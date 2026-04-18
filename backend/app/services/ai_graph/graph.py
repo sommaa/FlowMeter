@@ -325,18 +325,21 @@ def initialize_state(
     api_key: str,
     provider: str,
     model: Optional[str] = None,
+    effort: Optional[str] = None,
     available_viz_types: Optional[list[str]] = None,
     existing_visualizations: Optional[list[str]] = None,
     max_suggestions: int = 5
 ) -> SuggestionGraphState:
     """
     Initialize the graph state with input data.
-    
+
     Args:
         columns: List of column metadata dictionaries
         guidance_text: User's analysis goals
         api_key: AI provider API key
         provider: AI provider name
+        model: Model name to use
+        effort: Reasoning effort level or None
         available_viz_types: Optional list of supported viz types
         existing_visualizations: Optional list of existing chart titles
         max_suggestions: Maximum suggestions to generate
@@ -359,7 +362,8 @@ def initialize_state(
         max_suggestions=max_suggestions,
         api_key=api_key,
         provider=provider,
-        model=model or "",  # Optional model override
+        model=model or "",
+        effort=effort or "",
         valid_column_names=valid_columns,
         numeric_columns=numeric_cols,
         datetime_columns=datetime_cols,
@@ -394,12 +398,12 @@ async def generate_suggestions_node(state: SuggestionGraphState) -> dict:
     logger.info(f"Generating suggestions with {state['provider']}")
     
     try:
-        # Create chat model (use specified model if provided)
+        # Create chat model
         chat_model = get_chat_model(
             provider=state['provider'],
             api_key=state['api_key'],
             model=state.get('model') or None,
-            temperature=0.7
+            effort=state.get('effort') or None,
         )
         
         # Build prompts
@@ -670,12 +674,11 @@ async def correct_suggestions_node(state: SuggestionGraphState) -> dict:
     valid_columns = list(state['valid_column_names'])
     
     try:
-        # Create chat model
+        # Create chat model (no extra effort for corrections)
         chat_model = get_chat_model(
             provider=state['provider'],
             api_key=state['api_key'],
             model=state.get('model') or None,
-            temperature=0.5  # Lower temperature for corrections
         )
         
         for failed in state['failed_suggestions'][:3]:  # Limit to 3 corrections per round
@@ -916,22 +919,25 @@ async def run_suggestion_workflow(
     api_key: str,
     provider: ProviderType,
     model: Optional[str] = None,
+    effort: Optional[str] = None,
     available_viz_types: Optional[list[str]] = None,
     existing_visualizations: Optional[list[str]] = None,
     max_suggestions: int = 5
 ) -> tuple[list[VisualizationSuggestion], list[str]]:
     """
     Run the complete suggestion workflow.
-    
+
     Args:
         columns: List of column metadata
         guidance_text: User's analysis goals
         api_key: AI provider API key
         provider: AI provider name
+        model: Model name to use
+        effort: Reasoning effort level ("low", "medium", "high") or None
         available_viz_types: Supported visualization types
         existing_visualizations: Existing chart titles to avoid
         max_suggestions: Maximum suggestions to generate
-        
+
     Returns:
         Tuple of (validated_suggestions, errors)
     """
@@ -942,6 +948,7 @@ async def run_suggestion_workflow(
         api_key=api_key,
         provider=provider,
         model=model,
+        effort=effort,
         available_viz_types=available_viz_types,
         existing_visualizations=existing_visualizations,
         max_suggestions=max_suggestions

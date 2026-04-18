@@ -483,7 +483,8 @@ class SuggestionGraphState(TypedDict, total=False):
     max_suggestions: int
     api_key: str
     provider: str
-    model: str  # Optional model override
+    model: str
+    effort: str  # Reasoning effort: "low", "medium", "high", or ""
 
     # Processing
     valid_column_names: set[str]

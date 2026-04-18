@@ -360,6 +360,8 @@ export const reconciliationApi = {
 // ============= AI API =============
 
 import type {
+  AIProvider,
+  AIModelInfo,
   AIProviderInfo,
   AISuggestRequest,
   AISuggestResponse,
@@ -374,6 +376,22 @@ export const aiApi = {
   getProviders: async (): Promise<AIProviderInfo[]> => {
     const response = await api.get<APIResponse<AIProviderInfo[]>>('/ai/providers');
     return response.data.data || [];
+  },
+
+  /**
+   * Fetch available models from a provider's API using the user's API key.
+   * Falls back to the static model list on failure.
+   */
+  fetchProviderModels: async (provider: AIProvider, apiKey: string): Promise<AIModelInfo[]> => {
+    const response = await api.post<APIResponse<{ models: AIModelInfo[]; fetched: boolean; error: string | null }>>(
+      `/ai/providers/${provider}/models`,
+      { api_key: apiKey }
+    );
+    const result = response.data.data;
+    if (result?.error) {
+      console.warn(`[AI] Failed to fetch ${provider} models dynamically:`, result.error);
+    }
+    return result?.models || [];
   },
 
   /**
@@ -407,6 +425,7 @@ export const aiApi = {
     provider: string;
     api_key: string;
     model?: string;
+    effort?: 'low' | 'medium' | 'high';
     columns: Array<{
       name: string;
       description: string;
