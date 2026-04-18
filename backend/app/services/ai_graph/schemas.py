@@ -35,6 +35,12 @@ VizType = Literal[
     "correlation",
     "fft",
     "root_cause",
+    "kpi",
+]
+
+# Allowed KPI aggregation operations exposed to the AI suggestion path.
+KPIOperation = Literal[
+    "sum", "avg", "min", "max", "median", "count", "first", "last", "std", "formula"
 ]
 
 # Plot types for individual series in universal visualizations.
@@ -140,6 +146,28 @@ class FormulaConfig(BaseModel):
         return v
 
 
+# ============= KPI Metric Suggestion =============
+
+class KPIMetricSuggestion(BaseModel):
+    """A single KPI metric proposed by the AI (no client-side id yet)."""
+    label: str = Field(..., min_length=1, max_length=80, description="Card label, e.g. 'Total Energy'")
+    operation: KPIOperation = Field(..., description="Aggregation: sum, avg, min, max, median, count, first, last, std, or formula")
+    column: Optional[str] = Field(default=None, description="Source column (required unless operation == 'formula')")
+    formula: Optional[str] = Field(default=None, description="Custom formula using col[...], np, pd (required when operation == 'formula')")
+    unit: Optional[str] = Field(default=None, max_length=16, description="Unit suffix, e.g. 'kWh', '°C', '%'")
+    decimals: int = Field(default=2, ge=0, le=6, description="Decimal places to display")
+
+    @model_validator(mode='after')
+    def _check_required(self) -> 'KPIMetricSuggestion':
+        if self.operation == 'formula':
+            if not self.formula or not self.formula.strip():
+                raise ValueError("KPI formula metric requires 'formula'")
+        else:
+            if not self.column:
+                raise ValueError(f"KPI metric with operation '{self.operation}' requires 'column'")
+        return self
+
+
 # ============= Additional Config =============
 
 class AdditionalConfig(BaseModel):
@@ -168,6 +196,10 @@ class AdditionalConfig(BaseModel):
     pca_components: int = Field(default=2, ge=2, le=10, description="Number of PCA components")
     show_confidence_interval: bool = Field(default=False, description="Show confidence interval bands")
     formula: Optional[FormulaConfig] = Field(default=None, description="Formula configuration for formula viz type")
+    kpi_metrics: Optional[list[KPIMetricSuggestion]] = Field(
+        default=None,
+        description="KPI metrics for kpi viz type. Each entry becomes one card.",
+    )
 
     @field_validator('formula', mode='before')
     @classmethod
@@ -386,8 +418,8 @@ class VisualizationSuggestion(BaseModel):
         Raises:
             ValueError: If the suggestion doesn't meet viz_type requirements.
         """
-        # x_axis requirements - correlation and root_cause don't need x_axis
-        if self.viz_type not in ('correlation', 'root_cause') and not self.x_axis:
+        # x_axis requirements - correlation, root_cause and kpi don't need x_axis
+        if self.viz_type not in ('correlation', 'root_cause', 'kpi') and not self.x_axis:
             raise ValueError(f"{self.viz_type} requires an x_axis column")
 
         # y_axes requirements vary by viz_type
@@ -405,6 +437,9 @@ class VisualizationSuggestion(BaseModel):
         if self.viz_type == 'formula':
             if not self.additional_config or not self.additional_config.formula or not self.additional_config.formula.input:
                 raise ValueError("Formula visualization requires a formula in additional_config.formula.input")
+        elif self.viz_type == 'kpi':
+            if not self.additional_config or not self.additional_config.kpi_metrics:
+                raise ValueError("KPI visualization requires at least one entry in additional_config.kpi_metrics")
         elif self.viz_type not in ('pca', 'correlation', 'root_cause', 'regression', 'fft') and len(self.y_axes) < 1:
             # universal, area, hist, box require at least 1 y_axis
             raise ValueError(f"{self.viz_type} requires at least 1 variable in y_axes")

@@ -63,3 +63,6 @@ backend/data/
 
 # Miscellaneous
 *.log
+
+# video of the app
+app-video/

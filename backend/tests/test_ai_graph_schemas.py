@@ -719,3 +719,55 @@ class TestColumnMetadata:
             unit="degC",
         )
         assert cm.unit == "degC"
+
+
+# ============= KPI suggestion schema =============
+
+from app.services.ai_graph.schemas import KPIMetricSuggestion
+
+
+class TestKPIMetricSuggestion:
+    """Tests for the AI-side KPI metric suggestion schema."""
+
+    def test_builtin_op_requires_column(self):
+        with pytest.raises(PydanticValidationError):
+            KPIMetricSuggestion(label="x", operation="sum")
+
+    def test_formula_op_requires_formula(self):
+        with pytest.raises(PydanticValidationError):
+            KPIMetricSuggestion(label="x", operation="formula")
+
+    def test_builtin_op_happy_path(self):
+        m = KPIMetricSuggestion(label="Total", operation="sum", column="power", unit="kWh")
+        assert m.column == "power"
+        assert m.formula is None
+
+    def test_formula_op_happy_path(self):
+        m = KPIMetricSuggestion(label="Eff", operation="formula", formula="col['a'].sum() / col['b'].sum()")
+        assert m.formula.startswith("col[")
+
+    def test_decimals_bounds(self):
+        with pytest.raises(PydanticValidationError):
+            KPIMetricSuggestion(label="x", operation="sum", column="a", decimals=99)
+
+
+class TestKPIVisualizationSuggestion:
+    """KPI variants of VisualizationSuggestion structural validation."""
+
+    def test_kpi_without_kpi_metrics_raises(self):
+        with pytest.raises(PydanticValidationError):
+            _make_suggestion(viz_type="kpi", x_axis="", y_axes=[])
+
+    def test_kpi_with_kpi_metrics_passes(self):
+        s = _make_suggestion(
+            viz_type="kpi",
+            x_axis="",
+            y_axes=[],
+            additional_config={
+                "kpi_metrics": [
+                    {"label": "Sum power", "operation": "sum", "column": "power", "unit": "kW"}
+                ]
+            },
+        )
+        assert s.viz_type == "kpi"
+        assert s.additional_config.kpi_metrics[0].column == "power"

@@ -191,9 +191,14 @@ def _create_claude_model(
 
     if effort:
         budget = _ANTHROPIC_EFFORT_BUDGET[effort]
-        kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
+        # Claude 4+ uses adaptive thinking + output_config.effort; the older
+        # {"type": "enabled", "budget_tokens": N} shape is rejected on these models.
+        kwargs["thinking"] = {"type": "adaptive"}
+        kwargs["model_kwargs"] = {"output_config": {"effort": effort}}
         # max_tokens must accommodate both thinking and output
         kwargs["max_tokens"] = max_tokens + budget
+        # Anthropic rejects any temperature other than 1 when extended thinking is on.
+        kwargs["temperature"] = 1
 
     return ChatAnthropic(**kwargs)
 

@@ -1,4 +1,4 @@
-from app.models.schemas import VisualizationConfig
+from app.models.schemas import VisualizationConfig, KPI_OPERATIONS
 
 from typing import Dict, List, Union
 
@@ -36,7 +36,24 @@ def validate_config(config: VisualizationConfig) -> Dict[str, Union[bool, List[s
     
     if config.regression.alpha < 0 or config.regression.alpha > 1:
         errors.append("Alpha must be between 0 and 1")
-    
+
+    if config.viz_type.value == 'kpi':
+        if not config.kpi.metrics:
+            errors.append("KPI requires at least one metric")
+        else:
+            for idx, metric in enumerate(config.kpi.metrics):
+                prefix = f"KPI metric #{idx + 1} ('{metric.label or 'unnamed'}')"
+                if metric.operation not in KPI_OPERATIONS:
+                    errors.append(f"{prefix}: unsupported operation '{metric.operation}'")
+                elif metric.operation == 'formula':
+                    if not metric.formula or not metric.formula.strip():
+                        errors.append(f"{prefix}: formula expression is required")
+                else:
+                    if not metric.column:
+                        errors.append(f"{prefix}: column is required")
+        if not (1 <= config.kpi.columns_per_row <= 6):
+            warnings.append("KPI columns_per_row should be between 1 and 6")
+
     return {
         "valid": len(errors) == 0,
         "errors": errors,

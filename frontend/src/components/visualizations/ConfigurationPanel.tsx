@@ -21,6 +21,7 @@ import { RegressionSettings } from './sections/RegressionSettings';
 import { FormulaSettings } from './sections/FormulaSettings';
 import { FFTSettings } from './sections/FFTSettings';
 import { RootCauseSettings } from './sections/RootCauseSettings';
+import { KPISettings } from './sections/KPISettings';
 
 /**
  * Props for the ConfigurationPanel component.
@@ -41,7 +42,7 @@ interface ConfigurationPanelProps {
     allColumns: string[];
     datetimeColumns?: string[];
     onUpdate: (updates: Partial<VisualizationConfig>) => void;
-    onOpenFormula: () => void;
+    onOpenFormula: (kpiMetricId?: string) => void;
     regressionEquation?: string;
     stacked?: boolean;
 }
@@ -110,7 +111,7 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
 
     // Analysis-only types have their own dedicated settings and don't need
     // standard plot controls (series, axis, regression, formula, etc.)
-    const ANALYSIS_ONLY_TYPES = ['correlation', 'pca', 'root_cause'];
+    const ANALYSIS_ONLY_TYPES = ['correlation', 'pca', 'root_cause', 'kpi'];
     const showPlotSettings = !ANALYSIS_ONLY_TYPES.includes(config.viz_type);
 
     // FFT needs variable selection (SeriesList) but not regression/axis controls
@@ -140,7 +141,13 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
             {/* 2. Type-specific settings (each component self-guards on viz_type) */}
             <RootCauseSettings config={config} numericColumns={numericColumns} onUpdate={onUpdate} />
             <FFTSettings config={config} onUpdate={onUpdate} />
-            <FormulaSettings config={config} onUpdate={onUpdate} onOpenFormula={onOpenFormula} />
+            <FormulaSettings config={config} onUpdate={onUpdate} onOpenFormula={() => onOpenFormula()} />
+            <KPISettings
+                config={config}
+                numericColumns={numericColumns}
+                onUpdate={onUpdate}
+                onOpenFormula={(metricId) => onOpenFormula(metricId)}
+            />
 
             {/* 3. Standard plot settings — hidden for analysis-only types */}
             {showPlotSettings && (

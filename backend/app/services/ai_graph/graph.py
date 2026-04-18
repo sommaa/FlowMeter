@@ -354,9 +354,9 @@ def initialize_state(
         columns=columns,
         guidance_text=guidance_text,
         available_viz_types=available_viz_types or [
-            "universal", "area", "hist", "box", 
+            "universal", "area", "hist", "box",
             "regression", "pca", "formula", "correlation",
-            "fft", "root_cause"
+            "fft", "root_cause", "kpi"
         ],
         existing_visualizations=existing_visualizations or [],
         max_suggestions=max_suggestions,
@@ -427,11 +427,11 @@ async def generate_suggestions_node(state: SuggestionGraphState) -> dict:
         ]
         
         response = await chat_model.ainvoke(messages)
-        content = response.content
-        
+        content = _content_to_text(response.content)
+
         # Log raw LLM response
         debug.log_llm_response(content)
-        
+
         # Parse JSON from response
         suggestions = _parse_json_response(content)
         
@@ -711,11 +711,11 @@ async def correct_suggestions_node(state: SuggestionGraphState) -> dict:
             
             try:
                 response = await chat_model.ainvoke(messages)
-                content = response.content
-                
+                content = _content_to_text(response.content)
+
                 # Log correction response
                 debug.log_llm_response(content)
-                
+
                 # Parse corrected suggestion
                 corrected_raw = _parse_json_response(content)
                 if corrected_raw:
@@ -984,7 +984,28 @@ async def run_suggestion_workflow(
 
 # ============= Helper Functions =============
 
-def _parse_json_response(content: str) -> list[dict]:
+def _content_to_text(content) -> str:
+    """Normalize a LangChain message content payload to a plain text string.
+
+    Anthropic with extended thinking returns content as a list of content
+    blocks (e.g. `[{"type": "thinking", ...}, {"type": "text", "text": ...}]`).
+    Extract the concatenated text-block content; fall back to str() otherwise.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, dict):
+                if block.get("type") == "text" and isinstance(block.get("text"), str):
+                    parts.append(block["text"])
+            elif isinstance(block, str):
+                parts.append(block)
+        return "".join(parts) if parts else str(content)
+    return str(content)
+
+
+def _parse_json_response(content) -> list[dict]:
     """Parse JSON from LLM response, handling various formats.
 
     Handles multiple common response formats:
@@ -999,6 +1020,9 @@ def _parse_json_response(content: str) -> list[dict]:
     Returns:
         List of suggestion dictionaries, or empty list if parsing fails.
     """
+    # Normalize content from list-of-blocks (Anthropic extended thinking) to text
+    content = _content_to_text(content)
+
     # Try direct parse
     try:
         data = json.loads(content)

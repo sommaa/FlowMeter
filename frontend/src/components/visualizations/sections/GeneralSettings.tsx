@@ -39,6 +39,7 @@ const VISUALIZATION_TYPES: { value: VisualizationType; label: string }[] = [
     { value: 'correlation', label: 'Correlation Matrix' },
     { value: 'fft', label: 'FFT Power Spectrum' },
     { value: 'root_cause', label: 'Root Cause Analysis' },
+    { value: 'kpi', label: 'KPI / Summary' },
 ];
 
 /**
@@ -132,7 +133,7 @@ interface GeneralSettingsProps {
  */
 export const GeneralSettings: React.FC<GeneralSettingsProps> = ({ config, xAxisOptions, onUpdate }) => {
     const showFormulaOptions = config.viz_type === 'formula';
-    const showXAxisOptions = !showFormulaOptions && !['hist', 'box', 'pca', 'correlation', 'fft', 'root_cause'].includes(config.viz_type);
+    const showXAxisOptions = !showFormulaOptions && !['hist', 'box', 'pca', 'correlation', 'fft', 'root_cause', 'kpi'].includes(config.viz_type);
 
     return (
         <div className="space-y-3">

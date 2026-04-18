@@ -48,6 +48,7 @@ from app.services.visualization.regression import RegressionEngine, MODEL_DIR
 from app.services.visualization import plotting
 from app.services.visualization import fft
 from app.services.visualization import root_cause
+from app.services.visualization import kpi as kpi_module
 
 class VisualizationService:
     """Orchestrates visualization data generation from datasets.
@@ -265,6 +266,7 @@ class VisualizationService:
             VisualizationType.CORRELATION: plotting.generate_correlation_data,
             VisualizationType.FFT: fft.generate_fft_data,
             VisualizationType.ROOT_CAUSE: root_cause.generate_root_cause_data,
+            VisualizationType.KPI: kpi_module.generate_kpi_data,
         }
         
         handler = handlers.get(config.viz_type)
@@ -331,6 +333,7 @@ class VisualizationService:
             VisualizationType.CORRELATION: plotting.generate_correlation_data,
             VisualizationType.FFT: fft.generate_fft_data,
             VisualizationType.ROOT_CAUSE: root_cause.generate_root_cause_data,
+            VisualizationType.KPI: kpi_module.generate_kpi_data,
         }
         
         handler = handlers.get(config.viz_type)

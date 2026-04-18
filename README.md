@@ -146,14 +146,14 @@ Unlike general-purpose analytics tools, FlowMeter is purpose-built for the probl
 
 ### 📊 Visualization Types
 
-FlowMeter ships with **10 fully configurable** visualization types. Each has its own dedicated configuration panel with relevant settings — no mode-switching or hidden menus.
+FlowMeter ships with **11 fully configurable** visualization types. Each has its own dedicated configuration panel with relevant settings — no mode-switching or hidden menus.
 
 <br>
 
 <div align="center">
 
 <img src="docs/images/screenshot-viz-types.jpg" alt="Visualization type selector" width="800" />
-<br><sub><em>Visualization type selector — 10 chart types, each with a dedicated config panel</em></sub>
+<br><sub><em>Visualization type selector — 11 chart types, each with a dedicated config panel</em></sub>
 
 </div>
 
@@ -171,6 +171,7 @@ FlowMeter ships with **10 fully configurable** visualization types. Each has its
 | **Correlation Matrix** | `correlation` | Color-coded heatmap of pairwise variable correlations | Identifying related variables at a glance |
 | **FFT Analysis** | `fft` | Frequency spectrum analysis with Hann windowing, overlap, and detrending | Detecting periodic signals, vibration analysis |
 | **Root Cause Analysis** | `root_cause` | Multi-method causality detection (Pearson, cross-correlation, mutual info, Granger) | Finding which variables drive a target variable |
+| **KPI / Summary** | `kpi` | Responsive card grid of aggregated scalars (sum, avg, min, max, median, count, first, last, std, or custom formula) with per-metric unit, decimals, and color | Dashboard tiles, period totals, headline numbers |
 
 > [!NOTE]
 > The **General Plot** (`universal`) type supports four render modes per series: `line`, `scatter`, `bar`, and `step`. The `PlotType` enum (used in axis configuration for multi-axis overlays) contains three modes: `Line`, `Scatter`, and `Line + Scatter`. These are distinct from the per-series render types available in the General Plot.
@@ -1115,6 +1116,7 @@ flowmeter/
 │   │   │   │   ├── processing.py                 # Data preprocessing
 │   │   │   │   ├── fft.py                        # Frequency analysis
 │   │   │   │   ├── root_cause.py                 # Causality analysis
+│   │   │   │   ├── kpi.py                         # KPI / summary aggregation
 │   │   │   │   └── validation.py                 # Config validation
 │   │   │   ├── analytics/
 │   │   │   │   └── causality.py                  # Granger causality & mutual info
@@ -1276,7 +1278,7 @@ backend/venv/bin/python -m pytest --rootdir=backend -q
 | `test_viz_processing.py` | Data pre-processing for visualization |
 | `test_visualization_validation.py` | Advanced validation edge cases |
 | `test_visualization_processing.py` | Chart data processing pipeline |
-| `test_plotting.py` | Plotly chart generation (all 10 visualization types) |
+| `test_plotting.py` | Plotly chart generation (all 11 visualization types) |
 | `test_plotting_legacy.py` | Legacy chart generation compatibility |
 | `test_regression.py` | All 6 regression models + custom formula fitting |
 | `test_formula_rf.py` | Random Forest with formula-derived features |
@@ -1285,6 +1287,7 @@ backend/venv/bin/python -m pytest --rootdir=backend -q
 | `test_hist_bins.py` | Histogram bin calculation and edge cases |
 | `test_causality.py` | Granger causality, Pearson, mutual info analysis |
 | `test_root_cause.py` | Root cause analysis ranking and methods |
+| `test_kpi_service.py` | KPI aggregation operations, formula metrics, error isolation, formatting |
 | `test_reconciliation.py` | Constraint solving, OSQP, sigma weighting |
 | `test_reconciliation_api.py` | Reconciliation API endpoints |
 | `test_reconciliation_service.py` | Reconciliation service business logic |

@@ -35,7 +35,9 @@ from app.models.schemas import (
     LimitConfig,
     FormulaConfig,
     SeriesConfiguration,
-    PlotType
+    PlotType,
+    KPIConfig,
+    KPIMetric,
 )
 
 logger = logging.getLogger(__name__)
@@ -329,7 +331,25 @@ class AIVisualizationService:
             # Get formula from additional_config if available
             if add_config and add_config.formula and add_config.formula.input:
                 formula_config = FormulaConfig(input=add_config.formula.input)
-        
+
+        # Build KPI config if applicable
+        kpi_config = KPIConfig()
+        if viz_type == VisualizationType.KPI and add_config and add_config.kpi_metrics:
+            kpi_config = KPIConfig(
+                metrics=[
+                    KPIMetric(
+                        id=str(uuid.uuid4()),
+                        label=m.label,
+                        operation=m.operation,
+                        column=m.column,
+                        formula=m.formula,
+                        unit=m.unit,
+                        decimals=m.decimals,
+                    )
+                    for m in add_config.kpi_metrics
+                ]
+            )
+
         # Create the config with all required fields
         config = VisualizationConfig(
             id=config_id,
@@ -342,10 +362,11 @@ class AIVisualizationService:
             regression=regression,
             pca=pca,
             formula=formula_config,
+            kpi=kpi_config,
             series_configs=series_configs,
             notes=suggestion.reasoning if suggestion.reasoning else None
         )
-        
+
         return config
     
     def suggestions_to_configs(self, suggestions: list[GraphSuggestion]) -> list[VisualizationConfig]:

@@ -105,7 +105,36 @@ def validate_columns_exist(
     if suggestion.viz_type == "formula":
         _debug_log(f"       (formula type - skipping y_axes validation)", min_level=3)
         return result
-    
+
+    # For KPI viz types, validate metric column references in additional_config.kpi_metrics
+    if suggestion.viz_type == "kpi":
+        kpi_metrics = getattr(suggestion.additional_config, "kpi_metrics", None) or []
+        _debug_log(f"       (kpi type - validating {len(kpi_metrics)} metric columns)", min_level=3)
+        for idx, metric in enumerate(kpi_metrics):
+            op = getattr(metric, "operation", None)
+            col = getattr(metric, "column", None)
+            if op == "formula":
+                continue  # formula metrics are evaluated at runtime; no column to verify here
+            if not col:
+                result.add_error(
+                    f"additional_config.kpi_metrics[{idx}].column",
+                    f"Metric '{getattr(metric, 'label', '?')}' missing 'column'",
+                    "Set a column name for non-formula metrics",
+                )
+                continue
+            if col not in valid_columns:
+                matches = get_close_matches(col, list(valid_columns), n=1, cutoff=0.6)
+                suggestion_text = f"Did you mean '{matches[0]}'?" if matches else "Check column name"
+                result.add_error(
+                    f"additional_config.kpi_metrics[{idx}].column",
+                    f"Column '{col}' not found",
+                    suggestion_text,
+                )
+                _debug_log(f"       ✗ kpi metric column '{col}' NOT FOUND", min_level=2)
+            else:
+                _debug_log(f"       ✓ kpi metric column '{col}' exists", min_level=3)
+        return result
+
     # Check y_axes
     for col in suggestion.y_axes:
         # Allow common computed/placeholder names that aren't real columns
@@ -285,9 +314,12 @@ def validate_viz_type_requirements(
         "area": 1,
         "box": 1,
         "hist": 1,
+        "fft": 1,
+        "root_cause": 3,
         "formula": 0,  # Formula generates its own data
+        "kpi": 0,  # KPI aggregates scalars, no y-axis series
     }
-    
+
     required = min_y_axes.get(viz_type, 1)
     _debug_log(f"       Required y_axes: {required}, has: {y_count}", min_level=3)
     if y_count < required:

@@ -19,7 +19,7 @@ def get_system_prompt(reasoning_max_chars: int = 1200) -> str:
     The system prompt covers:
         - **Role**: Expert data analyst for visualization recommendations
         - **Visualization types**: universal, area, hist, box, regression,
-          pca, formula, correlation with use cases and requirements
+          pca, formula, correlation, fft, root_cause, kpi with use cases and requirements
         - **Critical rules**: Column naming, data type requirements
         - **Professional output**: Guidelines for report-ready reasoning text
         - **Validation checks**: Rules the AI output will be validated against
@@ -150,6 +150,17 @@ Best for: Identifying causal relationships, finding which variables drive a targ
 - **Use when:** user wants to understand what causes changes in a target variable,
   wants to find root causes of anomalies, or needs causal analysis
 
+### "kpi" - KPI / Summary Cards
+Best for: Showing aggregated scalars (totals, averages, min/max/median) over the period
+- Renders as a grid of cards, one per metric — no axes, no series
+- x_axis and y_axes are NOT used (leave empty)
+- Provide one or more entries in `additional_config.kpi_metrics`
+- Each metric has: label, operation (sum|avg|min|max|median|count|first|last|std|formula),
+  column (required unless operation == "formula"), optional unit, optional decimals (0-6),
+  and optional formula (Python expression with col[...], np, pd) when operation == "formula"
+- **Use when:** user asks for "totals", "averages over the period", "summary numbers",
+  "dashboard metrics", or wants headline numbers next to charts
+
 ## CRITICAL RULES
 
 ### Column Names
@@ -160,8 +171,20 @@ Best for: Identifying causal relationships, finding which variables drive a targ
 ### Data Types
 - For regression/PCA/correlation/fft/root_cause: use NUMERIC columns only
 - For box plots: y_axes MUST be numeric
-- For time-series x-axis: prefer datetime columns
 - For histograms: use numeric columns
+
+### X-Axis Selection (CRITICAL)
+- If the dataset has ANY datetime column, use it as `x_axis` by default for
+  universal / area / box / fft / regression visualizations — these are time-series
+  in almost every real-world FlowMeter dataset.
+- Only choose a numeric column for `x_axis` when the analysis is explicitly
+  a scatter/relationship plot between two quantities (e.g., flow vs. pressure),
+  a histogram of a numeric distribution, or when NO datetime column exists.
+- Never omit the datetime column from `x_axis` just because the user's goal
+  mentions a variable name — the datetime column is the timeline; the variable
+  goes on `y_axes`.
+- If multiple datetime columns exist, default to the first one listed in the
+  dataset metadata (the dataset's column order is authoritative).
 
 ### Professional Output (EXPORTED TO REPORTS)
 Your `reasoning` field becomes chart notes in exported HTML reports. Write it as:
@@ -199,6 +222,7 @@ BAD: "I recommend this chart because it will be useful for the user's analysis."
 - **pca**: x_axis required, y_axes must have 3+ numeric variables
 - **fft**: x_axis required, y_axes must have 1+ numeric signal columns
 - **root_cause**: x_axis can be empty, y_axes must have 3+ numeric variables
+- **kpi**: x_axis and y_axes can be empty, but MUST provide at least one entry in `additional_config.kpi_metrics`
 - **box**: x_axis required, y_axes must have 1+ numeric variables
 - **hist**: x_axis required (numeric or datetime), y_axes must have 1+ variable
 
@@ -264,7 +288,20 @@ def get_user_prompt(
         + (f" [Role: {col['role']}]" if col.get('role') else "")
         for col in columns
     ])
-    
+
+    # Surface datetime columns explicitly so the AI uses them as x_axis for time-series
+    datetime_cols = [c['name'] for c in columns if c.get('data_type') == 'datetime']
+    if datetime_cols:
+        datetime_hint = (
+            f"\n\n## Timeline Columns (datetime)\n"
+            f"{', '.join(datetime_cols)}\n"
+            f"Use one of these as `x_axis` for any time-series visualization "
+            f"(universal, area, box, fft, regression over time). When multiple "
+            f"datetime columns exist, default to the first one above."
+        )
+    else:
+        datetime_hint = "\n\n## Timeline Columns (datetime)\nNone — choose a numeric x_axis where needed."
+
     # Format existing visualizations
     existing_text = ""
     if existing_visualizations:
@@ -272,6 +309,7 @@ def get_user_prompt(
     
     return f"""## Dataset Columns
 {columns_text}
+{datetime_hint}
 
 ## User's Analysis Goals
 {guidance_text}
@@ -289,7 +327,7 @@ Return your suggestions as a JSON array with these fields for each:
 - title: string (descriptive, Title Case, 5-100 characters)
 - description: string (one-line summary, 10-300 characters)
 - viz_type: string (from available types)
-- x_axis: string (column name, can be empty for correlation/root_cause)
+- x_axis: string (column name — REQUIRED and non-empty for universal/area/hist/box/regression/fft/pca; may be empty ONLY for correlation/root_cause/kpi)
 - y_axes: array of strings (column names, can be empty for formula)
 - x_label: string (with units)
 - y_label: string (with units)
@@ -303,6 +341,11 @@ additional_config examples:
   For regression: {{ "add_regression": true, "regression_degree": 2, "show_confidence_interval": true }}
   For PCA: {{ "pca_components": 3 }}
   For formula: {{ "formula": {{ "input": "result = col['A'] * 2" }} }}
+  For KPI: {{ "kpi_metrics": [
+      {{ "label": "Total Energy", "operation": "sum", "column": "power", "unit": "kWh", "decimals": 0 }},
+      {{ "label": "Avg Temperature", "operation": "avg", "column": "temp", "unit": "°C", "decimals": 1 }},
+      {{ "label": "Efficiency", "operation": "formula", "formula": "col['power'].sum() / col['fuel'].sum()", "unit": "%", "decimals": 2 }}
+  ] }}
 """
 
 

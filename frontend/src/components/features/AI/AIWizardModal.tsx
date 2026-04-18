@@ -242,12 +242,24 @@ export const AIWizardModal: React.FC<Props> = ({
         }
     };
 
+    // The configuration editor represents the dataset's primary datetime column
+    // as the magic value "Index" (and filters that column out of the variable
+    // dropdown). When the AI returns the literal column name, the dropdown
+    // can't match it and shows the empty placeholder. Normalize on apply.
+    const normalizeAppliedConfig = (config: VisualizationConfig): VisualizationConfig => {
+        const primaryDatetime = currentDataset?.datetime_columns?.[0];
+        if (primaryDatetime && config.axis?.x_axis === primaryDatetime) {
+            return { ...config, axis: { ...config.axis, x_axis: 'Index' } };
+        }
+        return config;
+    };
+
     // Apply single suggestion
     const handleApplySuggestion = async (suggestion: AISuggestion, index: number) => {
         try {
             const response = await aiApi.applySuggestions([suggestion]);
             if (response.configurations.length > 0) {
-                const config = response.configurations[0] as VisualizationConfig;
+                const config = normalizeAppliedConfig(response.configurations[0] as VisualizationConfig);
                 setAppliedConfigs(prev => [...prev, config]);
                 setAppliedIndices(prev => new Set([...prev, index]));
             }
@@ -263,7 +275,7 @@ export const AIWizardModal: React.FC<Props> = ({
 
         try {
             const response = await aiApi.applySuggestions(unapplied);
-            const newConfigs = response.configurations as VisualizationConfig[];
+            const newConfigs = (response.configurations as VisualizationConfig[]).map(normalizeAppliedConfig);
             setAppliedConfigs(prev => [...prev, ...newConfigs]);
 
             // Mark all as applied

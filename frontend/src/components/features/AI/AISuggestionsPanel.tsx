@@ -194,15 +194,27 @@ export const AISuggestionsPanel: React.FC<Props> = ({
         );
     }
 
-    // Empty state
+    // Empty state — reached only after a generation attempt returned zero results
     if (suggestions.length === 0) {
         return (
             <Card className="p-6 text-center">
                 <Lightbulb className="w-8 h-8 mx-auto mb-3 text-muted-foreground opacity-50" />
-                <h3 className="font-semibold mb-1">No Suggestions Yet</h3>
+                <h3 className="font-semibold mb-1">No Suggestions Returned</h3>
                 <p className="text-sm text-muted-foreground">
-                    Complete the column descriptions and click "Generate Suggestions" to get AI recommendations
+                    The AI didn't return any usable suggestions. Try refining your analysis goals or
+                    column descriptions, then retry.
                 </p>
+                {onRetry && (
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={onRetry}
+                        className="mt-4"
+                    >
+                        <RefreshCw className="w-4 h-4 mr-1" />
+                        Try Again
+                    </Button>
+                )}
             </Card>
         );
     }

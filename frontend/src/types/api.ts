@@ -47,7 +47,20 @@ export type VisualizationType =
   | 'formula'
   | 'correlation'
   | 'fft'
-  | 'root_cause';
+  | 'root_cause'
+  | 'kpi';
+
+export type KPIOperation =
+  | 'sum'
+  | 'avg'
+  | 'min'
+  | 'max'
+  | 'median'
+  | 'count'
+  | 'first'
+  | 'last'
+  | 'std'
+  | 'formula';
 
 export type PlotType = 'Line' | 'Scatter' | 'Line + Scatter';
 
@@ -274,6 +287,40 @@ export interface SeriesConfiguration {
   line_width?: number;
 }
 
+export interface KPIMetric {
+  id: string;
+  label: string;
+  operation: KPIOperation;
+  column?: string;
+  formula?: string;
+  unit?: string;
+  decimals: number;
+  color?: string;
+}
+
+export interface KPIConfig {
+  metrics: KPIMetric[];
+  columns_per_row: number; // 1..6
+  compact: boolean;
+}
+
+export interface KPIResultValue {
+  id: string;
+  label: string;
+  value: number | null;
+  formatted: string;
+  unit?: string;
+  color?: string;
+  error?: string;
+}
+
+export interface KPIResultPayload {
+  values: KPIResultValue[];
+  columns_per_row: number;
+  compact: boolean;
+  sample_count: number;
+}
+
 export interface VisualizationConfig {
   id: string;
   title: string;
@@ -289,6 +336,7 @@ export interface VisualizationConfig {
   formula: FormulaConfig;
   fft: FFTConfig;
   root_cause: RootCauseConfig;
+  kpi: KPIConfig;
   series_configs?: Record<string, SeriesConfiguration>; // Added
 
   // Notes
@@ -389,6 +437,7 @@ export interface PlotDataResponse {
     }>;
     methods_used: string[];
   };
+  kpi?: KPIResultPayload;
 }
 
 // ============= Storyline Types =============
@@ -504,6 +553,11 @@ export const createDefaultVisualizationConfig = (id: string): VisualizationConfi
     min_correlation: 0.1,
     include_variables: [],
     result_plot: 'ranking',
+  },
+  kpi: {
+    metrics: [],
+    columns_per_row: 3,
+    compact: false,
   }
 });
 

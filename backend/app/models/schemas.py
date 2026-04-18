@@ -60,6 +60,7 @@ class VisualizationType(str, Enum):
     CORRELATION = "correlation"
     FFT = "fft"
     ROOT_CAUSE = "root_cause"
+    KPI = "kpi"
 
 
 class PlotType(str, Enum):
@@ -229,6 +230,51 @@ class RootCauseConfig(BaseModel):
     result_plot: str = "ranking"  # ranking, correlation_lag, method_breakdown
 
 
+# ============= KPI =============
+
+# Allowed aggregation operations. "formula" means the user provides a custom
+# expression evaluated against the filtered DataFrame.
+KPI_OPERATIONS = ("sum", "avg", "min", "max", "median", "count", "first", "last", "std", "formula")
+
+
+class KPIMetric(BaseModel):
+    """A single KPI metric (one card in the KPI grid)."""
+    id: str
+    label: str
+    operation: str  # one of KPI_OPERATIONS
+    column: Optional[str] = None  # required unless operation == "formula"
+    formula: Optional[str] = None  # required when operation == "formula"
+    unit: Optional[str] = None
+    decimals: int = 2
+    color: Optional[str] = None  # accent color for the value text
+
+
+class KPIConfig(BaseModel):
+    """Configuration for KPI / Summary visualization."""
+    metrics: list[KPIMetric] = []
+    columns_per_row: int = 3  # 1..6
+    compact: bool = False
+
+
+class KPIResultValue(BaseModel):
+    """Computed value for a single KPI metric (returned to frontend)."""
+    id: str
+    label: str
+    value: Optional[float] = None  # None if computation failed
+    formatted: str = "—"            # backend-formatted display string
+    unit: Optional[str] = None
+    color: Optional[str] = None
+    error: Optional[str] = None     # set when this metric failed to compute
+
+
+class KPIResultPayload(BaseModel):
+    """KPI section of PlotDataResponse."""
+    values: list[KPIResultValue] = []
+    columns_per_row: int = 3
+    compact: bool = False
+    sample_count: int = 0           # rows in the filtered window
+
+
 class SeriesConfiguration(BaseModel):
     """Configuration for a single data series in a universal plot."""
     type: str = "line"  # line, scatter, step, bar, line+scatter
@@ -321,7 +367,8 @@ class VisualizationConfig(BaseModel):
     formula: FormulaConfig = FormulaConfig()
     fft: FFTConfig = FFTConfig()
     root_cause: RootCauseConfig = RootCauseConfig()
-    
+    kpi: KPIConfig = Field(default_factory=KPIConfig)
+
     # Universal Plot Config
     series_configs: Dict[str, SeriesConfiguration] = {}
     
@@ -421,6 +468,7 @@ class PlotDataResponse(BaseModel):
     limits: Optional[list[Threshold]] = None
     correlation_matrix: Optional[dict[str, Any]] = None # {x: [], y: [], z: [[...]]}
     root_cause_analysis: Optional[dict[str, Any]] = None  # Root cause analysis results
+    kpi: Optional[KPIResultPayload] = None  # KPI summary values (when viz_type == "kpi")
     
     
 class PredictRequest(BaseModel):

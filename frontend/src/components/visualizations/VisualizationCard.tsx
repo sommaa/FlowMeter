@@ -55,6 +55,7 @@ import { ConfigurationPanel } from './ConfigurationPanel';
 import { FormulaEditorModal } from './FormulaEditorModal';
 import { RegressionPrediction } from './RegressionPrediction';
 import { RootCauseAnalysis } from './RootCauseAnalysis';
+import KPIDisplay from './KPIDisplay';
 
 /**
  * Props for the VisualizationCard component.
@@ -149,6 +150,7 @@ export const VisualizationCard: React.FC<VisualizationCardProps> = ({
   const isGrid = columns > 1;
   const [configOpen, setConfigOpen] = useState(false);
   const [formulaModalOpen, setFormulaModalOpen] = useState(false);
+  const [editingKpiMetricId, setEditingKpiMetricId] = useState<string | null>(null);
 
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -230,7 +232,7 @@ export const VisualizationCard: React.FC<VisualizationCardProps> = ({
     // MAINTENANCE: Add new config keys here if they change the plot data logic.
 
     const plotAffectingKeys = [
-      'viz_type', 'axis', 'formula', 'regression', 'pca', 'style', 'limits', 'date_range', 'series_configs', 'root_cause'
+      'viz_type', 'axis', 'formula', 'regression', 'pca', 'style', 'limits', 'date_range', 'series_configs', 'root_cause', 'kpi'
     ];
 
     const needsRefresh = Object.keys(updates).some(key => plotAffectingKeys.includes(key));
@@ -312,7 +314,10 @@ export const VisualizationCard: React.FC<VisualizationCardProps> = ({
               allColumns={allColumns}
               datetimeColumns={datetimeColumns}
               onUpdate={handleUpdate}
-              onOpenFormula={() => setFormulaModalOpen(true)}
+              onOpenFormula={(kpiMetricId) => {
+                setEditingKpiMetricId(kpiMetricId ?? null);
+                setFormulaModalOpen(true);
+              }}
               regressionEquation={plotData?.regression_model?.equation}
               stacked={isGrid}
             />
@@ -328,7 +333,9 @@ export const VisualizationCard: React.FC<VisualizationCardProps> = ({
                 </div>
               ) : plotData ? (
                 <ErrorBoundary onReset={() => refreshPlotData(config.id)}>
-                  {config.viz_type === 'root_cause' && plotData?.root_cause_analysis ? (
+                  {config.viz_type === 'kpi' && plotData?.kpi ? (
+                    <KPIDisplay data={plotData} config={config} height={500} />
+                  ) : config.viz_type === 'root_cause' && plotData?.root_cause_analysis ? (
                     <RootCauseAnalysis data={plotData} config={config} height={500} />
                   ) : (
                     <InteractivePlot data={plotData} config={config} loading={isLoading} height={500} />
@@ -336,9 +343,13 @@ export const VisualizationCard: React.FC<VisualizationCardProps> = ({
                 </ErrorBoundary>
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
-                  {(!config.axis?.y_axis || config.axis.y_axis.length === 0) && config.viz_type !== 'formula'
-                    ? "Add variables to visualize"
-                    : <Loading size="md" />}
+                  {config.viz_type === 'kpi'
+                    ? (config.kpi?.metrics.length === 0
+                        ? "Add a metric to display"
+                        : <Loading size="md" />)
+                    : ((!config.axis?.y_axis || config.axis.y_axis.length === 0) && config.viz_type !== 'formula'
+                        ? "Add variables to visualize"
+                        : <Loading size="md" />)}
                 </div>
               )
             ) : (
@@ -378,21 +389,34 @@ export const VisualizationCard: React.FC<VisualizationCardProps> = ({
         {/* Formula Editor Modal */}
         <FormulaEditorModal
           isOpen={formulaModalOpen}
-          onClose={() => setFormulaModalOpen(false)}
+          onClose={() => {
+            setFormulaModalOpen(false);
+            setEditingKpiMetricId(null);
+          }}
           initialFormula={
-            // If we're in regression mode with custom model type, show regression custom formula
-            config.viz_type === 'regression' && config.regression.model_type === 'custom'
-              ? config.regression.custom_formula || ''
-              : config.formula.input || ''
+            editingKpiMetricId
+              ? (config.kpi?.metrics.find(m => m.id === editingKpiMetricId)?.formula || '')
+              : (config.viz_type === 'regression' && config.regression.model_type === 'custom'
+                ? config.regression.custom_formula || ''
+                : config.formula.input || '')
           }
           onApply={(formula) => {
-            // Save to appropriate location based on context
-            if (config.viz_type === 'regression' && config.regression.model_type === 'custom') {
+            if (editingKpiMetricId) {
+              handleUpdate({
+                kpi: {
+                  ...config.kpi,
+                  metrics: config.kpi.metrics.map(m =>
+                    m.id === editingKpiMetricId ? { ...m, formula } : m
+                  ),
+                },
+              });
+            } else if (config.viz_type === 'regression' && config.regression.model_type === 'custom') {
               handleUpdate({ regression: { ...config.regression, custom_formula: formula } });
             } else {
               handleUpdate({ formula: { ...config.formula, input: formula } });
             }
             setFormulaModalOpen(false);
+            setEditingKpiMetricId(null);
             // Store is updated synchronously, refresh immediately
             refreshPlotData(config.id);
           }}
