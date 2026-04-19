@@ -287,6 +287,16 @@ export interface SeriesConfiguration {
   line_width?: number;
 }
 
+export type KPIPeriodMode = 'all' | 'preset' | 'custom';
+export type KPIPeriodPreset = '12h' | '24h' | '7d' | '30d' | '90d' | '1y';
+
+export interface KPIMetricPeriod {
+  mode: KPIPeriodMode;
+  preset?: KPIPeriodPreset | null;
+  start?: string | null;
+  end?: string | null;
+}
+
 export interface KPIMetric {
   id: string;
   label: string;
@@ -296,6 +306,7 @@ export interface KPIMetric {
   unit?: string;
   decimals: number;
   color?: string;
+  period?: KPIMetricPeriod | null;
 }
 
 export interface KPIConfig {
@@ -312,6 +323,7 @@ export interface KPIResultValue {
   unit?: string;
   color?: string;
   error?: string;
+  sample_count?: number | null;
 }
 
 export interface KPIResultPayload {

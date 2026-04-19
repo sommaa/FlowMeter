@@ -236,6 +236,25 @@ class RootCauseConfig(BaseModel):
 # expression evaluated against the filtered DataFrame.
 KPI_OPERATIONS = ("sum", "avg", "min", "max", "median", "count", "first", "last", "std", "formula")
 
+# Relative presets anchored to the dataset's most recent timestamp.
+KPI_PERIOD_PRESETS = ("12h", "24h", "7d", "30d", "90d", "1y")
+
+
+class KPIMetricPeriod(BaseModel):
+    """Optional per-metric time window override.
+
+    mode == "all"    -> use the globally-filtered window (default, equivalent to period=None).
+    mode == "preset" -> relative window anchored to the dataset end (df.index.max()).
+    mode == "custom" -> absolute start/end ISO datetimes (same format as the global date_range).
+
+    When a period is set, it replaces the global date filter for that metric so a
+    "Last week" card keeps showing last week even if the global filter is narrower.
+    """
+    mode: str = "all"                 # "all" | "preset" | "custom"
+    preset: Optional[str] = None      # one of KPI_PERIOD_PRESETS when mode == "preset"
+    start: Optional[str] = None       # ISO datetime when mode == "custom"
+    end: Optional[str] = None         # ISO datetime when mode == "custom"
+
 
 class KPIMetric(BaseModel):
     """A single KPI metric (one card in the KPI grid)."""
@@ -247,6 +266,7 @@ class KPIMetric(BaseModel):
     unit: Optional[str] = None
     decimals: int = 2
     color: Optional[str] = None  # accent color for the value text
+    period: Optional[KPIMetricPeriod] = None  # None => inherit the global window
 
 
 class KPIConfig(BaseModel):
@@ -265,6 +285,7 @@ class KPIResultValue(BaseModel):
     unit: Optional[str] = None
     color: Optional[str] = None
     error: Optional[str] = None     # set when this metric failed to compute
+    sample_count: Optional[int] = None  # rows used for this metric's window (after per-metric slicing)
 
 
 class KPIResultPayload(BaseModel):

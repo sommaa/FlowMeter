@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Plus, Trash2, GripVertical, Maximize2 } from 'lucide-react';
-import { KPIMetric, KPIOperation, VisualizationConfig } from '@/types';
+import { KPIMetric, KPIMetricPeriod, KPIOperation, KPIPeriodPreset, VisualizationConfig } from '@/types';
 import {
     SearchableSelect,
     DebouncedInput,
@@ -32,6 +32,41 @@ const OPERATION_OPTIONS: { value: KPIOperation; label: string }[] = [
     { value: 'last', label: 'Last' },
     { value: 'formula', label: 'Custom Formula' },
 ];
+
+type PeriodOption = 'all' | KPIPeriodPreset | 'custom';
+
+const PERIOD_OPTIONS: { value: PeriodOption; label: string }[] = [
+    { value: 'all', label: 'All (global filter)' },
+    { value: '12h', label: 'Last 12 hours' },
+    { value: '24h', label: 'Last 24 hours' },
+    { value: '7d', label: 'Last week' },
+    { value: '30d', label: 'Last month' },
+    { value: '90d', label: 'Last 90 days' },
+    { value: '1y', label: 'Last year' },
+    { value: 'custom', label: 'Custom range…' },
+];
+
+const periodToOption = (period: KPIMetricPeriod | null | undefined): PeriodOption => {
+    if (!period || period.mode === 'all') return 'all';
+    if (period.mode === 'preset' && period.preset) return period.preset;
+    if (period.mode === 'custom') return 'custom';
+    return 'all';
+};
+
+const optionToPeriod = (
+    value: PeriodOption,
+    existing: KPIMetricPeriod | null | undefined,
+): KPIMetricPeriod | null => {
+    if (value === 'all') return null;
+    if (value === 'custom') {
+        return {
+            mode: 'custom',
+            start: existing?.mode === 'custom' ? existing.start ?? null : null,
+            end: existing?.mode === 'custom' ? existing.end ?? null : null,
+        };
+    }
+    return { mode: 'preset', preset: value };
+};
 
 const uuid = () =>
     (globalThis.crypto as { randomUUID?: () => string } | undefined)?.randomUUID?.() ??
@@ -228,6 +263,61 @@ export const KPISettings: React.FC<KPISettingsProps> = ({
                                             }
                                             placeholder="Select column…"
                                         />
+                                    )}
+                                </div>
+
+                                {/* Period: preset or custom range. Overrides the global date filter for this metric. */}
+                                <div className="space-y-2">
+                                    <Select
+                                        label="Period"
+                                        options={PERIOD_OPTIONS}
+                                        value={periodToOption(metric.period)}
+                                        onChange={(e) =>
+                                            updateMetric(metric.id, {
+                                                period: optionToPeriod(
+                                                    e.target.value as PeriodOption,
+                                                    metric.period,
+                                                ),
+                                            })
+                                        }
+                                    />
+                                    {metric.period?.mode === 'custom' && (
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div className="space-y-1">
+                                                <label className="text-xs font-medium text-muted-foreground">Start</label>
+                                                <input
+                                                    type="datetime-local"
+                                                    value={metric.period?.start ?? ''}
+                                                    onChange={(e) =>
+                                                        updateMetric(metric.id, {
+                                                            period: {
+                                                                mode: 'custom',
+                                                                start: e.target.value || null,
+                                                                end: metric.period?.end ?? null,
+                                                            },
+                                                        })
+                                                    }
+                                                    className="w-full h-9 px-2 text-xs bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+                                                />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-xs font-medium text-muted-foreground">End</label>
+                                                <input
+                                                    type="datetime-local"
+                                                    value={metric.period?.end ?? ''}
+                                                    onChange={(e) =>
+                                                        updateMetric(metric.id, {
+                                                            period: {
+                                                                mode: 'custom',
+                                                                start: metric.period?.start ?? null,
+                                                                end: e.target.value || null,
+                                                            },
+                                                        })
+                                                    }
+                                                    className="w-full h-9 px-2 text-xs bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+                                                />
+                                            </div>
+                                        </div>
                                     )}
                                 </div>
 

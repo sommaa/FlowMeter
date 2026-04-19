@@ -4,9 +4,10 @@ Computes one or more aggregated scalars (sum, avg, min, max, median, count,
 first, last, std, or a custom formula) over the visualization's filtered
 DataFrame. Each metric becomes a card in the frontend grid.
 
-The DataFrame received here has already been date-range filtered by
-VisualizationService._generate_plot_data_internal, so this handler operates
-on whatever rows the user's window covers.
+Unlike other visualization handlers, this one receives the *unfiltered*
+DataFrame (plus the global date_range) so each metric can override the window
+— e.g. one card shows the last-week average while another shows the all-time
+max. When a metric has no period override it falls back to the global window.
 """
 
 import math
@@ -16,11 +17,13 @@ import numpy as np
 import pandas as pd
 
 from app.models.schemas import (
+    KPIMetric,
     KPIResultPayload,
     KPIResultValue,
     PlotDataResponse,
     VisualizationConfig,
 )
+from app.services.export_helpers.utils import filter_dataframe_by_date
 
 
 _BUILTIN_OPS = {
@@ -31,6 +34,17 @@ _BUILTIN_OPS = {
     "median": lambda s: s.median(skipna=True),
     "count":  lambda s: int(s.count()),
     "std":    lambda s: s.std(skipna=True),
+}
+
+
+# Relative presets anchored to the dataset's most recent timestamp.
+_PRESET_DELTAS = {
+    "12h": pd.Timedelta(hours=12),
+    "24h": pd.Timedelta(hours=24),
+    "7d":  pd.Timedelta(days=7),
+    "30d": pd.Timedelta(days=30),
+    "90d": pd.Timedelta(days=90),
+    "1y":  pd.Timedelta(days=365),
 }
 
 
@@ -82,33 +96,85 @@ def _format_value(value: Optional[float], decimals: int, unit: Optional[str]) ->
     return text
 
 
-def generate_kpi_data(df: pd.DataFrame, config: VisualizationConfig) -> PlotDataResponse:
-    """Compute KPI metrics for a (date-filtered) DataFrame.
+def _slice_preset(df: pd.DataFrame, preset: str) -> pd.DataFrame:
+    """Return the last-N slice anchored to the dataset's most recent timestamp."""
+    delta = _PRESET_DELTAS.get(preset)
+    if delta is None:
+        raise ValueError(f"Unknown period preset '{preset}'")
+    if not isinstance(df.index, pd.DatetimeIndex) or len(df) == 0:
+        return df
+    end = df.index.max()
+    start = end - delta
+    return df.loc[(df.index >= start) & (df.index <= end)]
+
+
+def _slice_for_metric(
+    df: pd.DataFrame,
+    metric: KPIMetric,
+    global_date_range: Optional[dict],
+) -> pd.DataFrame:
+    """Resolve a metric's time window.
+
+    No period / mode == "all" => inherit the global window (equivalent to the
+    old behavior where VisualizationService pre-filtered the df).
+
+    mode == "preset" => last-N anchored to dataset end, ignoring the global window.
+    mode == "custom" => explicit start/end, ignoring the global window.
+    """
+    period = metric.period
+    if period is None or period.mode == "all":
+        return filter_dataframe_by_date(df, global_date_range)
+    if period.mode == "preset":
+        return _slice_preset(df, period.preset)
+    if period.mode == "custom":
+        return filter_dataframe_by_date(df, {"start": period.start, "end": period.end})
+    raise ValueError(f"Unknown period mode '{period.mode}'")
+
+
+def generate_kpi_data(
+    df: pd.DataFrame,
+    config: VisualizationConfig,
+    global_date_range: Optional[dict] = None,
+) -> PlotDataResponse:
+    """Compute KPI metrics, applying per-metric time windows when set.
 
     Per-metric failures are caught and surfaced via KPIResultValue.error so a
     single bad metric doesn't break the whole card grid.
+
+    Args:
+        df: DataFrame with global variables already computed; NOT yet
+            date-filtered (VisualizationService defers filtering for KPI so
+            each metric can override the window).
+        config: Visualization configuration (uses config.kpi).
+        global_date_range: The visualization's effective date_range; used as
+            the fallback window for metrics without a period override.
     """
     kpi_cfg = config.kpi
     raw_cpr = kpi_cfg.columns_per_row if kpi_cfg.columns_per_row is not None else 3
     columns_per_row = max(1, min(int(raw_cpr), 6))
 
+    # Footer row-count reflects the globally-filtered view (matches what the
+    # user sees in the rest of the app). Per-metric counts live on each card.
+    base_df = filter_dataframe_by_date(df, global_date_range)
+
     payload = KPIResultPayload(
         values=[],
         columns_per_row=columns_per_row,
         compact=bool(kpi_cfg.compact),
-        sample_count=int(len(df)),
+        sample_count=int(len(base_df)),
     )
-
-    # Mirror the eval namespace used by compute_global_variables so authors
-    # have a single, consistent formula language across the app.
-    base_namespace = {"col": df, "np": np, "pd": pd}
 
     for metric in kpi_cfg.metrics:
         try:
+            metric_df = _slice_for_metric(df, metric, global_date_range)
+            # Formula metrics use the same eval namespace as compute_global_variables
+            # so authors have a single, consistent formula language across the app.
+            namespace = {"col": metric_df, "np": np, "pd": pd}
+
             if metric.operation == "formula":
                 if not metric.formula or not metric.formula.strip():
                     raise ValueError("Formula is empty")
-                raw = eval(metric.formula, base_namespace)  # noqa: S307 - same surface as global vars
+                raw = eval(metric.formula, namespace)  # noqa: S307 - same surface as global vars
                 value = _coerce_scalar(raw)
             else:
                 op = _BUILTIN_OPS.get(metric.operation)
@@ -116,9 +182,9 @@ def generate_kpi_data(df: pd.DataFrame, config: VisualizationConfig) -> PlotData
                     raise ValueError(f"Unsupported operation '{metric.operation}'")
                 if not metric.column:
                     raise ValueError("Column is required for this operation")
-                if metric.column not in df.columns:
+                if metric.column not in metric_df.columns:
                     raise ValueError(f"Column '{metric.column}' not found in dataset")
-                series = pd.to_numeric(df[metric.column], errors="coerce")
+                series = pd.to_numeric(metric_df[metric.column], errors="coerce")
                 if metric.operation == "first":
                     raw = _first_valid(series)
                 elif metric.operation == "last":
@@ -134,6 +200,7 @@ def generate_kpi_data(df: pd.DataFrame, config: VisualizationConfig) -> PlotData
                 formatted=_format_value(value, metric.decimals, metric.unit),
                 unit=metric.unit,
                 color=metric.color,
+                sample_count=int(len(metric_df)),
             ))
         except Exception as exc:
             payload.values.append(KPIResultValue(

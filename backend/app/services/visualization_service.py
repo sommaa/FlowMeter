@@ -225,16 +225,21 @@ class VisualizationService:
             g_vars_json = json.dumps([g.model_dump() for g in global_variables], sort_keys=True)
             df = self._get_dataset_with_globals_cached(dataset_id, g_vars_json)
             
+        # KPI defers date filtering to the handler so each metric can override
+        # the window (e.g. "last week avg" alongside "all time avg").
+        if config.viz_type == VisualizationType.KPI:
+            return kpi_module.generate_kpi_data(df, config, global_date_range=config.date_range)
+
         # Filter by date range if provided
         if config.date_range and config.date_range.get("start") and config.date_range.get("end"):
             start_date = pd.to_datetime(config.date_range["start"])
             end_date = pd.to_datetime(config.date_range["end"])
-            
+
             print(f"[DEBUG] Filtering date range: {start_date} to {end_date}")
             print(f"[DEBUG] Index type: {type(df.index)}")
             if hasattr(df.index, 'dtype'):
                  print(f"[DEBUG] Index dtype: {df.index.dtype}")
-            
+
             # Check if index is datetime
             if isinstance(df.index, pd.DatetimeIndex):
                 # Ensure timezone awareness consistency
@@ -245,7 +250,7 @@ class VisualizationService:
                      print("[DEBUG] Converting start/end to offset-naive")
                      start_date = start_date.tz_localize(None)
                      end_date = end_date.tz_localize(None)
-                
+
                 # Inclusive filtering
                 mask = (df.index >= start_date) & (df.index <= end_date)
                 df = df[mask]
@@ -253,7 +258,7 @@ class VisualizationService:
             else:
                 print("[DEBUG] Index is NOT DatetimeIndex - skipping filter")
                 pass
-        
+
         # Route to appropriate handler based on visualization type
         handlers = {
             VisualizationType.UNIVERSAL: plotting.generate_universal_data,  # General Plot (line, scatter, bar, step)
@@ -266,15 +271,14 @@ class VisualizationService:
             VisualizationType.CORRELATION: plotting.generate_correlation_data,
             VisualizationType.FFT: fft.generate_fft_data,
             VisualizationType.ROOT_CAUSE: root_cause.generate_root_cause_data,
-            VisualizationType.KPI: kpi_module.generate_kpi_data,
         }
-        
+
         handler = handlers.get(config.viz_type)
         if handler is None:
             raise ValueError(f"Unsupported visualization type: {config.viz_type}")
-        
+
         return handler(df, config)
-    
+
     def generate_plot_data_from_df(
         self,
         df: pd.DataFrame,
@@ -305,22 +309,27 @@ class VisualizationService:
         # Compute global variables if provided
         if global_variables:
             df = self.compute_global_variables(df, global_variables)
-        
+
+        # KPI defers date filtering to the handler so each metric can override
+        # the window (e.g. "last week avg" alongside "all time avg").
+        if config.viz_type == VisualizationType.KPI:
+            return kpi_module.generate_kpi_data(df, config, global_date_range=config.date_range)
+
         # Filter by date range if provided
         if config.date_range and config.date_range.get("start") and config.date_range.get("end"):
             start_date = pd.to_datetime(config.date_range["start"])
             end_date = pd.to_datetime(config.date_range["end"])
-            
+
             if isinstance(df.index, pd.DatetimeIndex):
                 if start_date.tzinfo and df.index.tz is None:
                     df.index = df.index.tz_localize('UTC')
                 elif start_date.tzinfo is None and df.index.tz:
                     start_date = start_date.tz_localize(None)
                     end_date = end_date.tz_localize(None)
-                
+
                 mask = (df.index >= start_date) & (df.index <= end_date)
                 df = df[mask]
-        
+
         # Route to appropriate handler
         handlers = {
             VisualizationType.UNIVERSAL: plotting.generate_universal_data,
@@ -333,13 +342,12 @@ class VisualizationService:
             VisualizationType.CORRELATION: plotting.generate_correlation_data,
             VisualizationType.FFT: fft.generate_fft_data,
             VisualizationType.ROOT_CAUSE: root_cause.generate_root_cause_data,
-            VisualizationType.KPI: kpi_module.generate_kpi_data,
         }
-        
+
         handler = handlers.get(config.viz_type)
         if handler is None:
             raise ValueError(f"Unsupported visualization type: {config.viz_type}")
-        
+
         return handler(df, config)
     
     @functools.lru_cache(maxsize=8)
