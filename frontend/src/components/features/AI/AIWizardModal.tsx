@@ -23,7 +23,8 @@
  * @module components/features/AI/AIWizardModal
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import axios from 'axios';
 import {
     Dialog,
     DialogContent,
@@ -166,14 +167,21 @@ export const AIWizardModal: React.FC<Props> = ({
     const [selectedModel, setSelectedModel] = useState<string>('');
     const [apiKey, setApiKey] = useState('');
 
-    // Suggestions state
+    // Suggestions state. `appliedIds` is keyed by the client-side stable id
+    // the suggest() service attaches on receipt — using indices would race
+    // against the list being replaced by a regenerate.
     const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [appliedIndices, setAppliedIndices] = useState<Set<number>>(new Set());
+    const [appliedIds, setAppliedIds] = useState<Set<string>>(new Set());
     const [appliedConfigs, setAppliedConfigs] = useState<VisualizationConfig[]>([]);
     const [maxSuggestions, setMaxSuggestions] = useState(5);
     const [selectedEffort, setSelectedEffort] = useState<AIEffort | undefined>(undefined);
+
+    // Holds the AbortController for any in-flight suggest() call. Aborted on
+    // modal close, on regenerate, and on unmount so a closed modal cannot
+    // later overwrite state with a stale response.
+    const suggestAbortRef = useRef<AbortController | null>(null);
 
     // Load providers on mount
     useEffect(() => {
@@ -191,12 +199,23 @@ export const AIWizardModal: React.FC<Props> = ({
             // Modal just opened - reset wizard step and suggestions, but KEEP descriptions/guidance
             setStep('descriptions');
             setSuggestions([]);
-            setAppliedIndices(new Set());
+            setAppliedIds(new Set());
             setAppliedConfigs([]);
             setError(null);
+        } else if (!isOpen && wasOpenRef.current) {
+            // Modal just closed — cancel any in-flight suggest call.
+            suggestAbortRef.current?.abort();
+            suggestAbortRef.current = null;
         }
         wasOpenRef.current = isOpen;
     }, [isOpen]); // Only depend on isOpen, not on initial values
+
+    // Final safety net: abort on unmount.
+    useEffect(() => {
+        return () => {
+            suggestAbortRef.current?.abort();
+        };
+    }, []);
 
     // Validation
     const isDescriptionsComplete = useCallback(() => {
@@ -210,6 +229,11 @@ export const AIWizardModal: React.FC<Props> = ({
     // Generate suggestions
     const generateSuggestions = async (provider: AIProvider, key: string, model: string, effort?: AIEffort, maxSuggestionsParam?: number) => {
         if (!currentDataset) return;
+
+        // Abort any prior in-flight call before starting a new one.
+        suggestAbortRef.current?.abort();
+        const controller = new AbortController();
+        suggestAbortRef.current = controller;
 
         const suggestionsCount = maxSuggestionsParam ?? 5;
         setMaxSuggestions(suggestionsCount);
@@ -232,13 +256,23 @@ export const AIWizardModal: React.FC<Props> = ({
                 guidance_text: guidanceText,
                 existing_visualization_titles: visualizations.map(v => v.title),
                 max_suggestions: suggestionsCount
-            });
+            }, controller.signal);
 
+            // Ignore a response that arrived after a newer abort (e.g. modal closed).
+            if (controller.signal.aborted) return;
             setSuggestions(response.suggestions);
         } catch (err) {
+            // Axios raises a CanceledError when the signal aborts; suppress it
+            // — the user already moved on.
+            if (axios.isCancel(err) || (err instanceof Error && err.name === 'CanceledError')) {
+                return;
+            }
             setError(err instanceof Error ? err.message : 'Failed to generate suggestions');
         } finally {
-            setIsLoading(false);
+            if (suggestAbortRef.current === controller) {
+                setIsLoading(false);
+                suggestAbortRef.current = null;
+            }
         }
     };
 
@@ -255,13 +289,15 @@ export const AIWizardModal: React.FC<Props> = ({
     };
 
     // Apply single suggestion
-    const handleApplySuggestion = async (suggestion: AISuggestion, index: number) => {
+    const handleApplySuggestion = async (suggestion: AISuggestion) => {
+        // Guard against double-click: bail if already applied.
+        if (appliedIds.has(suggestion.id)) return;
         try {
             const response = await aiApi.applySuggestions([suggestion]);
             if (response.configurations.length > 0) {
                 const config = normalizeAppliedConfig(response.configurations[0] as VisualizationConfig);
                 setAppliedConfigs(prev => [...prev, config]);
-                setAppliedIndices(prev => new Set([...prev, index]));
+                setAppliedIds(prev => new Set(prev).add(suggestion.id));
             }
         } catch (err) {
             console.error('Failed to apply suggestion:', err);
@@ -270,7 +306,7 @@ export const AIWizardModal: React.FC<Props> = ({
 
     // Apply all suggestions
     const handleApplyAll = async () => {
-        const unapplied = suggestions.filter((_, i) => !appliedIndices.has(i));
+        const unapplied = suggestions.filter((s) => !appliedIds.has(s.id));
         if (unapplied.length === 0) return;
 
         try {
@@ -278,10 +314,11 @@ export const AIWizardModal: React.FC<Props> = ({
             const newConfigs = (response.configurations as VisualizationConfig[]).map(normalizeAppliedConfig);
             setAppliedConfigs(prev => [...prev, ...newConfigs]);
 
-            // Mark all as applied
-            const newIndices = new Set(appliedIndices);
-            suggestions.forEach((_, i) => newIndices.add(i));
-            setAppliedIndices(newIndices);
+            setAppliedIds(prev => {
+                const next = new Set(prev);
+                for (const s of unapplied) next.add(s.id);
+                return next;
+            });
         } catch (err) {
             console.error('Failed to apply suggestions:', err);
         }
@@ -324,7 +361,7 @@ export const AIWizardModal: React.FC<Props> = ({
                         onApply={handleApplySuggestion}
                         onApplyAll={handleApplyAll}
                         onRetry={handleRetry}
-                        appliedIndices={appliedIndices}
+                        appliedIds={appliedIds}
                         providerName={providers.find(p => p.id === selectedProvider)?.name}
                     />
                 );

@@ -16,9 +16,18 @@ The AI service uses a structured workflow to:
 Endpoints are grouped under the "AI" tag in OpenAPI docs.
 """
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 import logging
+
+# Input-size caps for AI request bodies. These prevent accidentally or
+# maliciously large prompts from blowing up token budgets. Values picked to
+# comfortably fit legitimate use while bounding worst-case token cost.
+_MAX_GUIDANCE_CHARS = 2000
+_MAX_COLUMN_DESCRIPTION_CHARS = 500
+_MAX_COLUMN_NAME_CHARS = 200
+_MAX_COLUMNS = 200
+_MAX_FORMULA_DESCRIPTION_CHARS = 2000
 
 from app.services.ai_service import get_ai_service, AIVisualizationService, AIRequest, ColumnMetadata
 from app.services.ai_graph import VisualizationSuggestion as GraphSuggestion, fetch_provider_models
@@ -37,23 +46,41 @@ class SuggestRequest(BaseModel):
     model: str = Field(..., description="Model to use (e.g. 'gpt-4o', 'claude-sonnet-4-6')")
     effort: Optional[str] = Field(None, description="Reasoning effort: 'low', 'medium', or 'high'")
     column_descriptions: dict[str, str] = Field(
-        ..., 
+        ...,
         description="Map of column_name -> description (required for all columns)"
     )
     guidance_text: str = Field(
-        ..., 
+        ...,
+        max_length=_MAX_GUIDANCE_CHARS,
         description="User's free-form description of analysis goals"
     )
     existing_visualization_titles: list[str] = Field(
-        default=[], 
+        default=[],
         description="Titles of existing visualizations to avoid duplicates"
     )
     max_suggestions: int = Field(
-        default=5, 
-        ge=1, 
-        le=10, 
+        default=5,
+        ge=1,
+        le=10,
         description="Maximum number of suggestions"
     )
+
+    @field_validator("column_descriptions")
+    @classmethod
+    def _check_column_descriptions_size(cls, v: dict[str, str]) -> dict[str, str]:
+        if len(v) > _MAX_COLUMNS:
+            raise ValueError(f"Too many columns: {len(v)} (max {_MAX_COLUMNS})")
+        for name, desc in v.items():
+            if len(name) > _MAX_COLUMN_NAME_CHARS:
+                raise ValueError(
+                    f"Column name too long: {len(name)} chars (max {_MAX_COLUMN_NAME_CHARS})"
+                )
+            if len(desc) > _MAX_COLUMN_DESCRIPTION_CHARS:
+                raise ValueError(
+                    f"Description for column '{name[:50]}' too long: "
+                    f"{len(desc)} chars (max {_MAX_COLUMN_DESCRIPTION_CHARS})"
+                )
+        return v
 
 
 class ApplySuggestionsRequest(BaseModel):
@@ -351,13 +378,21 @@ class FormulaGenerateApiRequest(BaseModel):
     model: str = Field(..., description="Model to use (e.g. 'gpt-4o', 'claude-sonnet-4-6')")
     effort: Optional[str] = Field(None, description="Reasoning effort: 'low', 'medium', or 'high'")
     columns: list[dict] = Field(
-        ..., 
+        ...,
         description="List of column info: [{name, description, data_type, stats}]"
     )
     description: str = Field(
-        ..., 
+        ...,
+        max_length=_MAX_FORMULA_DESCRIPTION_CHARS,
         description="User's description of what to compute"
     )
+
+    @field_validator("columns")
+    @classmethod
+    def _check_columns_size(cls, v: list[dict]) -> list[dict]:
+        if len(v) > _MAX_COLUMNS:
+            raise ValueError(f"Too many columns: {len(v)} (max {_MAX_COLUMNS})")
+        return v
 
 
 @router.post("/generate-formula", response_model=APIResponse)

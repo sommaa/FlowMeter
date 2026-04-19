@@ -395,23 +395,53 @@ export const aiApi = {
   },
 
   /**
-   * Generate AI visualization suggestions
+   * Generate AI visualization suggestions.
+   *
+   * Pass an AbortSignal to cancel an in-flight request (e.g. when the
+   * wizard modal closes or the user regenerates mid-call). Each returned
+   * suggestion is given a client-side stable id so parent components can
+   * track apply/expand state without depending on array index.
    */
-  suggest: async (request: AISuggestRequest): Promise<AISuggestResponse> => {
-    const response = await api.post<APIResponse<AISuggestResponse>>('/ai/suggest', request);
+  suggest: async (
+    request: AISuggestRequest,
+    signal?: AbortSignal,
+  ): Promise<AISuggestResponse> => {
+    const response = await api.post<APIResponse<AISuggestResponse>>(
+      '/ai/suggest',
+      request,
+      { signal },
+    );
     if (!response.data.data) {
       throw new Error('Failed to get AI suggestions');
     }
-    return response.data.data;
+    const data = response.data.data;
+    const withIds: AISuggestResponse = {
+      ...data,
+      suggestions: data.suggestions.map((s) => ({
+        ...s,
+        id: s.id ?? (typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `ai-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`),
+      })),
+    };
+    return withIds;
   },
 
   /**
    * Apply AI suggestions - convert to VisualizationConfig objects
    */
-  applySuggestions: async (suggestions: AISuggestion[]): Promise<AIApplyResponse> => {
-    const response = await api.post<APIResponse<AIApplyResponse>>('/ai/apply-suggestions', {
-      suggestions
-    });
+  applySuggestions: async (
+    suggestions: AISuggestion[],
+    signal?: AbortSignal,
+  ): Promise<AIApplyResponse> => {
+    // Strip client-side id before sending to the backend — it only exists
+    // for UI bookkeeping and is not part of the server schema.
+    const payload = suggestions.map(({ id: _id, ...rest }) => rest);
+    const response = await api.post<APIResponse<AIApplyResponse>>(
+      '/ai/apply-suggestions',
+      { suggestions: payload },
+      { signal },
+    );
     if (!response.data.data) {
       throw new Error('Failed to apply suggestions');
     }

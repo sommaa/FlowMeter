@@ -3,7 +3,9 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { AISuggestionsPanel } from '../AISuggestionsPanel';
 import { AISuggestion } from '@/types';
 
+let idCounter = 0;
 const makeSuggestion = (overrides?: Partial<AISuggestion>): AISuggestion => ({
+    id: `suggestion-${++idCounter}`,
     title: 'Temperature Trend',
     description: 'Shows temperature changes over time',
     viz_type: 'line',
@@ -22,7 +24,7 @@ describe('AISuggestionsPanel', () => {
         onApply: vi.fn(),
         onApplyAll: vi.fn(),
         onRetry: vi.fn(),
-        appliedIndices: new Set<number>(),
+        appliedIds: new Set<string>(),
     };
 
     it('renders loading state with spinner and message', () => {
@@ -81,10 +83,7 @@ describe('AISuggestionsPanel', () => {
 
     it('renders empty state when no suggestions', () => {
         render(<AISuggestionsPanel {...defaultProps} suggestions={[]} />);
-        expect(screen.getByText('No Suggestions Yet')).toBeTruthy();
-        expect(
-            screen.getByText(/Complete the column descriptions/)
-        ).toBeTruthy();
+        expect(screen.getByText('No Suggestions Returned')).toBeTruthy();
     });
 
     it('renders suggestions list with header and count', () => {
@@ -125,7 +124,7 @@ describe('AISuggestionsPanel', () => {
         );
         expect(individualApplyBtn).toBeTruthy();
         fireEvent.click(individualApplyBtn!);
-        expect(onApply).toHaveBeenCalledWith(suggestion, 0);
+        expect(onApply).toHaveBeenCalledWith(suggestion);
     });
 
     it('calls onApplyAll when Apply All button is clicked', () => {
@@ -149,7 +148,7 @@ describe('AISuggestionsPanel', () => {
             <AISuggestionsPanel
                 {...defaultProps}
                 suggestions={suggestions}
-                appliedIndices={new Set([0, 1])}
+                appliedIds={new Set(suggestions.map(s => s.id))}
             />
         );
         expect(screen.getByText('All Applied')).toBeTruthy();
@@ -162,7 +161,7 @@ describe('AISuggestionsPanel', () => {
             <AISuggestionsPanel
                 {...defaultProps}
                 suggestions={suggestions}
-                appliedIndices={new Set([0])}
+                appliedIds={new Set([suggestions[0].id])}
             />
         );
         expect(screen.getByText('Added')).toBeTruthy();
@@ -224,7 +223,7 @@ describe('AISuggestionsPanel', () => {
             <AISuggestionsPanel
                 {...defaultProps}
                 suggestions={[suggestion]}
-                appliedIndices={new Set([0])}
+                appliedIds={new Set([suggestion.id])}
             />
         );
 

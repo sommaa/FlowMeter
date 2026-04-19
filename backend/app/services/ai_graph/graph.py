@@ -317,6 +317,64 @@ if _startup_level > 0:
 MAX_RETRIES = 3
 
 
+# ============= Message Builders =============
+
+def _build_messages(system_prompt: str, user_prompt: str, provider: str) -> list[dict]:
+    """Build the LLM message array with provider-specific optimizations.
+
+    For Claude, wraps the system prompt in a content block with
+    ``cache_control: {"type": "ephemeral"}`` so Anthropic caches the
+    system prompt for ~5 minutes. The system prompt is ~3-4k tokens and
+    identical across requests, so cache hits reduce input-token cost by
+    roughly 90%. Other providers get plain string content.
+    """
+    if provider == "claude":
+        system_content = [
+            {
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+    else:
+        system_content = system_prompt
+    return [
+        {"role": "system", "content": system_content},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def _log_cache_usage(response, provider: str) -> None:
+    """Log Anthropic prompt-cache hit/miss counters when available.
+
+    No-op for non-Claude providers. Looks for the usage block in
+    ``response_metadata`` or ``usage_metadata``; both exist in different
+    LangChain Anthropic adapter versions.
+    """
+    if provider != "claude":
+        return
+    usage = {}
+    for attr in ("usage_metadata", "response_metadata"):
+        value = getattr(response, attr, None)
+        if isinstance(value, dict):
+            if attr == "response_metadata":
+                usage = value.get("usage", value)
+            else:
+                usage = value
+            if usage:
+                break
+    if not usage:
+        return
+    cache_read = usage.get("cache_read_input_tokens") or usage.get("input_token_details", {}).get("cache_read")
+    cache_create = usage.get("cache_creation_input_tokens") or usage.get("input_token_details", {}).get("cache_creation")
+    if cache_read or cache_create:
+        logger.info(
+            "Anthropic prompt cache: created=%s, read=%s",
+            cache_create or 0,
+            cache_read or 0,
+        )
+
+
 # ============= State Initialization =============
 
 def initialize_state(
@@ -420,14 +478,13 @@ async def generate_suggestions_node(state: SuggestionGraphState) -> dict:
         debug.log_prompt("SYSTEM", system_prompt)
         debug.log_prompt("USER", user_prompt, max_chars=1000)
         
-        # Generate response
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
-        
+        # Generate response. For Claude, the system prompt is wrapped in a
+        # content block with cache_control so Anthropic caches it (~5 min TTL).
+        messages = _build_messages(system_prompt, user_prompt, state['provider'])
+
         response = await chat_model.ainvoke(messages)
         content = _content_to_text(response.content)
+        _log_cache_usage(response, state['provider'])
 
         # Log raw LLM response
         debug.log_llm_response(content)
@@ -703,15 +760,13 @@ async def correct_suggestions_node(state: SuggestionGraphState) -> dict:
             
             # Get system prompt for context
             system_prompt = get_system_prompt()
-            
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": correction_prompt}
-            ]
-            
+
+            messages = _build_messages(system_prompt, correction_prompt, state['provider'])
+
             try:
                 response = await chat_model.ainvoke(messages)
                 content = _content_to_text(response.content)
+                _log_cache_usage(response, state['provider'])
 
                 # Log correction response
                 debug.log_llm_response(content)

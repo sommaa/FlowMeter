@@ -88,6 +88,48 @@ class TestSuggestVisualizationsValidation:
             assert "API key" in response.json()["detail"]
 
 
+class TestSuggestLengthCaps:
+    """Tests for Pydantic length caps on SuggestRequest."""
+
+    def test_guidance_length_rejected(self, client):
+        payload = {
+            "dataset_id": "ds1",
+            "provider": "openai",
+            "api_key": "sk-test",
+            "model": "gpt-4o",
+            "column_descriptions": {"x": "var"},
+            "guidance_text": "A" * 3000,
+        }
+        response = client.post("/api/v1/ai/suggest", json=payload)
+        assert response.status_code == 422
+        body = response.json()
+        assert any("guidance_text" in str(e.get("loc", "")) for e in body["detail"])
+
+    def test_column_description_value_length_rejected(self, client):
+        payload = {
+            "dataset_id": "ds1",
+            "provider": "openai",
+            "api_key": "sk-test",
+            "model": "gpt-4o",
+            "column_descriptions": {"x": "A" * 600},
+            "guidance_text": "analyze",
+        }
+        response = client.post("/api/v1/ai/suggest", json=payload)
+        assert response.status_code == 422
+
+    def test_too_many_columns_rejected(self, client):
+        payload = {
+            "dataset_id": "ds1",
+            "provider": "openai",
+            "api_key": "sk-test",
+            "model": "gpt-4o",
+            "column_descriptions": {f"c{i}": "v" for i in range(250)},
+            "guidance_text": "analyze",
+        }
+        response = client.post("/api/v1/ai/suggest", json=payload)
+        assert response.status_code == 422
+
+
 class TestGenerateFormulaValidation:
     """Tests for POST /api/v1/ai/generate-formula validation."""
 

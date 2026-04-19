@@ -56,7 +56,7 @@ vi.mock('../AISuggestionsPanel', () => ({
             {error && <span data-testid="suggestions-error">{error}</span>}
             {onRetry && <button data-testid="suggestions-retry" onClick={onRetry}>Retry</button>}
             {suggestions.map((s: any, i: number) => (
-                <button key={i} data-testid={`apply-${i}`} onClick={() => onApply(s, i)}>Apply {i}</button>
+                <button key={s.id ?? i} data-testid={`apply-${i}`} onClick={() => onApply(s)}>Apply {i}</button>
             ))}
             <button data-testid="apply-all" onClick={onApplyAll}>Apply All</button>
         </div>
@@ -171,6 +171,7 @@ describe('AIWizardModal', () => {
         vi.mocked(aiApi.suggest).mockResolvedValue({
             suggestions: [
                 {
+                    id: 'test-suggestion-1',
                     title: 'Test Chart',
                     description: 'A test',
                     viz_type: 'line',

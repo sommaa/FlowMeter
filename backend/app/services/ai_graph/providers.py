@@ -47,6 +47,11 @@ _GEMINI_EFFORT_BUDGET = {
     "high": 32768,
 }
 
+# Temperature for schema-constrained suggestion generation. Low values reduce
+# churn in the validation/correction retry loop; higher variety is not useful
+# when the output must match a Pydantic schema.
+_SUGGESTION_TEMPERATURE = 0.2
+
 
 # ============= Provider Factory =============
 
@@ -117,7 +122,7 @@ def _create_gemini_model(
     kwargs: dict = dict(
         model=model,
         google_api_key=api_key,
-        temperature=0.95,
+        temperature=_SUGGESTION_TEMPERATURE,
         max_output_tokens=max_tokens,
         convert_system_message_to_human=True,
     )
@@ -156,7 +161,7 @@ def _create_openai_model(
     return ChatOpenAI(
         model=model,
         api_key=api_key,
-        temperature=0.95,
+        temperature=_SUGGESTION_TEMPERATURE,
         max_tokens=max_tokens,
         model_kwargs=model_kwargs if model_kwargs else {},
     )
@@ -185,7 +190,7 @@ def _create_claude_model(
     kwargs: dict = dict(
         model=model,
         api_key=api_key,
-        temperature=0.95,
+        temperature=_SUGGESTION_TEMPERATURE,
         max_tokens=max_tokens,
     )
 

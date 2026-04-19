@@ -49,20 +49,20 @@ import { cn } from '@/lib/utils';
  * @property {AISuggestion[]} suggestions - Array of AI-generated visualization suggestions
  * @property {boolean} isLoading - Whether AI is currently generating suggestions
  * @property {string | null} [error] - Error message if generation failed (optional)
- * @property {(suggestion: AISuggestion, index: number) => void} onApply - Callback to apply single suggestion
+ * @property {(suggestion: AISuggestion) => void} onApply - Callback to apply single suggestion
  * @property {() => void} onApplyAll - Callback to apply all unapplied suggestions
  * @property {() => void} [onRetry] - Optional callback to retry generation after error
- * @property {Set<number>} appliedIndices - Set of indices for already-applied suggestions
+ * @property {Set<string>} appliedIds - Set of ids for already-applied suggestions
  * @property {string} [providerName] - AI provider name for loading message (optional)
  */
 interface Props {
     suggestions: AISuggestion[];
     isLoading: boolean;
     error?: string | null;
-    onApply: (suggestion: AISuggestion, index: number) => void;
+    onApply: (suggestion: AISuggestion) => void;
     onApplyAll: () => void;
     onRetry?: () => void;
-    appliedIndices: Set<number>;
+    appliedIds: Set<string>;
     providerName?: string;
 }
 
@@ -149,10 +149,10 @@ export const AISuggestionsPanel: React.FC<Props> = ({
     onApply,
     onApplyAll,
     onRetry,
-    appliedIndices,
+    appliedIds,
     providerName
 }) => {
-    const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+    const [expandedId, setExpandedId] = useState<string | null>(null);
 
     // Loading state
     if (isLoading) {
@@ -219,8 +219,8 @@ export const AISuggestionsPanel: React.FC<Props> = ({
         );
     }
 
-    const allApplied = suggestions.every((_, i) => appliedIndices.has(i));
-    const appliedCount = appliedIndices.size;
+    const allApplied = suggestions.length > 0 && suggestions.every((s) => appliedIds.has(s.id));
+    const appliedCount = appliedIds.size;
 
     return (
         <div className="space-y-4">
@@ -257,20 +257,20 @@ export const AISuggestionsPanel: React.FC<Props> = ({
 
             {/* Suggestions List */}
             <div className="space-y-2">
-                {suggestions.map((suggestion, index) => {
-                    const isApplied = appliedIndices.has(index);
-                    const isExpanded = expandedIndex === index;
+                {suggestions.map((suggestion) => {
+                    const isApplied = appliedIds.has(suggestion.id);
+                    const isExpanded = expandedId === suggestion.id;
 
                     return (
                         <Card
-                            key={index}
+                            key={suggestion.id}
                             className={cn(
                                 "p-4 transition-all",
                                 isApplied
                                     ? "border-primary/30 bg-primary/5"
                                     : "cursor-pointer hover:border-border-prominent"
                             )}
-                            onClick={() => !isApplied && setExpandedIndex(isExpanded ? null : index)}
+                            onClick={() => !isApplied && setExpandedId(isExpanded ? null : suggestion.id)}
                         >
                             <div className="flex items-start justify-between gap-3">
                                 <div className="flex-1 min-w-0">
@@ -314,7 +314,7 @@ export const AISuggestionsPanel: React.FC<Props> = ({
                                                 size="sm"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    onApply(suggestion, index);
+                                                    onApply(suggestion);
                                                 }}
                                                 className="h-8 w-8 p-0"
                                             >

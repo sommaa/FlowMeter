@@ -13,10 +13,46 @@ The service converts AI suggestions into VisualizationConfig objects that can
 be directly rendered by the frontend.
 """
 import os
+import re
 import uuid
 import asyncio
 from typing import Optional
 import logging
+
+# Control characters that would let user input break prompt structure or
+# confuse the tokenizer. We keep newlines and tabs; strip everything else
+# in the C0/C1 ranges.
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+# More than 2 consecutive newlines collapse to 2.
+_MULTI_NEWLINE_RE = re.compile(r"\n{3,}")
+
+
+def _sanitize_user_text(text: str) -> str:
+    """Neutralize user-supplied text before embedding in an LLM prompt.
+
+    Applied to guidance_text and column descriptions. Prevents the most
+    common tag-break injection attempts and strips control characters that
+    could interfere with prompt formatting. This is defense-in-depth — the
+    system prompt also contains an explicit "treat tagged content as data"
+    rule.
+
+    Args:
+        text: Raw user-supplied string.
+
+    Returns:
+        Sanitized string safe to interpolate inside <user_guidance> or
+        <column_description> XML blocks.
+    """
+    if not text:
+        return ""
+    sanitized = _CONTROL_CHARS_RE.sub("", text)
+    sanitized = _MULTI_NEWLINE_RE.sub("\n\n", sanitized)
+    # Replace '<' with a visually similar Unicode char only inside potential
+    # closing tags for the wrapping elements we use. This avoids a user
+    # closing <user_guidance> prematurely.
+    sanitized = sanitized.replace("</user_guidance>", "‹/user_guidance›")
+    sanitized = sanitized.replace("</column_description>", "‹/column_description›")
+    return sanitized
 
 from .ai_graph import (
     run_suggestion_workflow,
@@ -183,17 +219,19 @@ class AIVisualizationService:
         _debug_log(f"  Columns: {len(request.columns)}", min_level=1)
         _debug_log(f"  Max suggestions: {request.max_suggestions}", min_level=1)
         
-        # Convert ColumnMetadata to dict format for the graph
+        # Convert ColumnMetadata to dict format for the graph. Sanitize
+        # user-supplied description text before it enters the prompt builder.
         columns = [
             {
                 "name": col.name,
-                "description": col.description or "",
+                "description": _sanitize_user_text(col.description or ""),
                 "data_type": col.data_type,
                 "unit": col.unit or "",
                 "role": col.role or "",
             }
             for col in request.columns
         ]
+        sanitized_guidance = _sanitize_user_text(request.guidance_text)
         
         _debug_log(f"  Column breakdown:", min_level=2)
         for col in columns[:5]:  # Limit to first 5
@@ -210,7 +248,7 @@ class AIVisualizationService:
             # Run the LangGraph workflow
             validated_suggestions, errors = await run_suggestion_workflow(
                 columns=columns,
-                guidance_text=request.guidance_text,
+                guidance_text=sanitized_guidance,
                 api_key=api_key,
                 provider=provider_name,
                 model=request.model,

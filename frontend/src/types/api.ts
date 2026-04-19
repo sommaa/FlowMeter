@@ -605,6 +605,9 @@ export interface ColumnMetadata {
 }
 
 export interface AISuggestion {
+  // Client-side stable id. Generated on receipt so "Apply" does not race with
+  // the suggestions array being reordered or replaced.
+  id: string;
   title: string;
   description: string;
   viz_type: VisualizationType;

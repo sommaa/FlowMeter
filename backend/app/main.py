@@ -59,6 +59,7 @@ from fastapi.staticfiles import StaticFiles
 # Local Application Imports
 from app.api import api_router, data, export, reconciliation, templates, visualizations, models
 from app.core.config import get_settings
+from app.core.logging_filters import install_secret_redaction
 from app.core.profiler import ProcessTimeMiddleware
 from app.core.responses import NaNSafeJSONResponse
 from app.core.responses import NaNSafeJSONResponse
@@ -71,6 +72,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
+install_secret_redaction()
 logger = logging.getLogger(__name__)
 
 
@@ -83,6 +85,10 @@ async def lifespan(app: FastAPI):
     graceful shutdown procedures.
     """
     # --- Startup ---
+    # Re-attach redaction filter now that uvicorn has configured its own
+    # handlers (the import-time call covers the root logger; this covers
+    # uvicorn.access / uvicorn.error).
+    install_secret_redaction()
     logger.info(f"🚀 Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"📊 Debug mode: {settings.debug}")
     
