@@ -619,11 +619,11 @@ class PlotlyRenderer:
                 xref="x", yref="paper",
                 text=f"<b>{event_number}</b>",
                 showarrow=False,
-                font=dict(color="white", size=10),
+                font=dict(color="white", size=13),
                 bgcolor=event_color,
                 bordercolor=event_color,
                 borderwidth=1,
-                borderpad=1,
+                borderpad=3,
                 xanchor="center",
                 yanchor="top",
                 hovertext=f"{event_number}. {evt.get('title', '')}"
