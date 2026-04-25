@@ -5,7 +5,7 @@ These schemas enforce comprehensive validation rules to ensure
 that generated suggestions are correct and usable.
 """
 
-from typing import Literal, Optional, Any
+from typing import Literal, Optional, Any, get_args
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing_extensions import TypedDict
 
@@ -37,6 +37,11 @@ VizType = Literal[
     "root_cause",
     "kpi",
 ]
+
+# Single source of truth for runtime use (state init, AIRequest default,
+# anywhere a list[str] of viz types is needed). Derives from VizType so
+# adding a new variant only requires editing the Literal above.
+ALL_VIZ_TYPES: list[str] = list(get_args(VizType))
 
 # Allowed KPI aggregation operations exposed to the AI suggestion path.
 KPIOperation = Literal[
@@ -537,6 +542,11 @@ class SuggestionGraphState(TypedDict, total=False):
     retry_count: int
     max_retries: int
     current_stage: str  # "generate", "validate_schema", "validate_columns", "validate_formulas", "correct", "done"
+
+    # Observability (populated by graph nodes; drained by run_suggestion_workflow)
+    # Each entry is {input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens}
+    # — numeric only, no prompt text.
+    usage_records: list[dict]
 
 
 # ============= Column Metadata =============

@@ -17,6 +17,7 @@ Debug Levels (set AI_DEBUG_LEVEL environment variable):
 4 = TRACE (+ state snapshots and function calls)
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -32,11 +33,19 @@ from .schemas import (
     ColumnMetadata,
     AdditionalConfig,
     FormulaConfig,
+    ALL_VIZ_TYPES,
 )
-from .providers import get_chat_model, ProviderType
+from .providers import get_chat_model, ProviderType, ainvoke_timeout_s
 from .prompts import get_system_prompt, get_user_prompt, get_correction_prompt
 from .validators import validate_suggestion_complete
 from .formula_validator import validate_formula
+from .errors import AIProviderError, AIProviderTimeout
+from ..ai_metrics import (
+    AIMetricsRecord,
+    extract_usage,
+    get_collector,
+    new_request_id,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -344,35 +353,22 @@ def _build_messages(system_prompt: str, user_prompt: str, provider: str) -> list
     ]
 
 
-def _log_cache_usage(response, provider: str) -> None:
-    """Log Anthropic prompt-cache hit/miss counters when available.
+def _log_cache_usage(response, provider: str) -> dict:
+    """Extract normalized token usage from a chat response and log cache hits.
 
-    No-op for non-Claude providers. Looks for the usage block in
-    ``response_metadata`` or ``usage_metadata``; both exist in different
-    LangChain Anthropic adapter versions.
+    Returns a dict with ``input_tokens``, ``output_tokens``, ``cache_read_tokens``,
+    ``cache_creation_tokens`` (zeros for missing fields) so the caller can
+    feed it into the AIMetrics ring. Claude prompt-cache counters are still
+    logged at INFO when non-zero for human-readable debugging.
     """
-    if provider != "claude":
-        return
-    usage = {}
-    for attr in ("usage_metadata", "response_metadata"):
-        value = getattr(response, attr, None)
-        if isinstance(value, dict):
-            if attr == "response_metadata":
-                usage = value.get("usage", value)
-            else:
-                usage = value
-            if usage:
-                break
-    if not usage:
-        return
-    cache_read = usage.get("cache_read_input_tokens") or usage.get("input_token_details", {}).get("cache_read")
-    cache_create = usage.get("cache_creation_input_tokens") or usage.get("input_token_details", {}).get("cache_creation")
-    if cache_read or cache_create:
+    usage = extract_usage(response, provider)
+    if provider == "claude" and (usage["cache_read_tokens"] or usage["cache_creation_tokens"]):
         logger.info(
             "Anthropic prompt cache: created=%s, read=%s",
-            cache_create or 0,
-            cache_read or 0,
+            usage["cache_creation_tokens"],
+            usage["cache_read_tokens"],
         )
+    return usage
 
 
 # ============= State Initialization =============
@@ -411,11 +407,7 @@ def initialize_state(
     return SuggestionGraphState(
         columns=columns,
         guidance_text=guidance_text,
-        available_viz_types=available_viz_types or [
-            "universal", "area", "hist", "box",
-            "regression", "pca", "formula", "correlation",
-            "fft", "root_cause", "kpi"
-        ],
+        available_viz_types=available_viz_types or list(ALL_VIZ_TYPES),
         existing_visualizations=existing_visualizations or [],
         max_suggestions=max_suggestions,
         api_key=api_key,
@@ -433,6 +425,7 @@ def initialize_state(
         retry_count=0,
         max_retries=MAX_RETRIES,
         current_stage="generate",
+        usage_records=[],
     )
 
 
@@ -482,22 +475,32 @@ async def generate_suggestions_node(state: SuggestionGraphState) -> dict:
         # content block with cache_control so Anthropic caches it (~5 min TTL).
         messages = _build_messages(system_prompt, user_prompt, state['provider'])
 
-        response = await chat_model.ainvoke(messages)
+        timeout_s = ainvoke_timeout_s(state['provider'], state.get('effort'))
+        _call_start = time.monotonic()
+        try:
+            response = await asyncio.wait_for(
+                chat_model.ainvoke(messages), timeout=timeout_s
+            )
+        except asyncio.TimeoutError as te:
+            elapsed = time.monotonic() - _call_start
+            raise AIProviderTimeout(
+                provider=state['provider'], elapsed_s=elapsed
+            ) from te
         content = _content_to_text(response.content)
-        _log_cache_usage(response, state['provider'])
+        usage = _log_cache_usage(response, state['provider'])
 
         # Log raw LLM response
         debug.log_llm_response(content)
 
         # Parse JSON from response
         suggestions = _parse_json_response(content)
-        
+
         # Log parsing result
         if suggestions:
             debug.log_json_parse(success=True, num_items=len(suggestions))
         else:
             debug.log_json_parse(success=False, error="No suggestions parsed from response")
-        
+
         # Log raw suggestions for visibility
         logger.info(f"AI generated {len(suggestions)} raw suggestions")
         for i, s in enumerate(suggestions):
@@ -507,15 +510,22 @@ async def generate_suggestions_node(state: SuggestionGraphState) -> dict:
             formula = s.get('additional_config', {}).get('formula', '')
             formula_preview = (formula[:50] + '...') if isinstance(formula, str) and len(formula) > 50 else formula
             logger.info(f"  [{i+1}] {title} ({viz_type}){' formula=' + str(formula_preview) if formula else ''}")
-        
+
         debug.phase_end("generate_suggestions_node", f"{len(suggestions)} suggestions generated")
         debug.log_state_transition("generate", "validate_schema", f"{len(suggestions)} raw suggestions to validate")
-        
+
         return {
             "suggestions": suggestions,
-            "current_stage": "validate_schema"
+            "current_stage": "validate_schema",
+            "usage_records": list(state.get('usage_records', [])) + [usage],
         }
         
+    except AIProviderError:
+        # Typed provider/network failures must reach the API layer verbatim
+        # so the client can surface a specific error_class. They must NOT be
+        # caught into a string or re-enter the schema-correction retry loop.
+        debug.phase_end("generate_suggestions_node", "FAILED: provider error")
+        raise
     except Exception as e:
         logger.error(f"Error generating suggestions: {e}")
         debug.phase_end("generate_suggestions_node", f"FAILED: {str(e)}")
@@ -725,9 +735,10 @@ async def correct_suggestions_node(state: SuggestionGraphState) -> dict:
         }
     
     logger.info(f"Correcting {len(state['failed_suggestions'])} failed suggestions")
-    
+
     corrected = []
     errors = []
+    new_usage: list[dict] = []
     valid_columns = list(state['valid_column_names'])
     
     try:
@@ -763,10 +774,21 @@ async def correct_suggestions_node(state: SuggestionGraphState) -> dict:
 
             messages = _build_messages(system_prompt, correction_prompt, state['provider'])
 
+            timeout_s = ainvoke_timeout_s(state['provider'], state.get('effort'))
+            _call_start = time.monotonic()
             try:
-                response = await chat_model.ainvoke(messages)
+                try:
+                    response = await asyncio.wait_for(
+                        chat_model.ainvoke(messages), timeout=timeout_s
+                    )
+                except asyncio.TimeoutError as te:
+                    elapsed = time.monotonic() - _call_start
+                    raise AIProviderTimeout(
+                        provider=state['provider'], elapsed_s=elapsed
+                    ) from te
                 content = _content_to_text(response.content)
-                _log_cache_usage(response, state['provider'])
+                usage = _log_cache_usage(response, state['provider'])
+                new_usage.append(usage)
 
                 # Log correction response
                 debug.log_llm_response(content)
@@ -782,12 +804,19 @@ async def correct_suggestions_node(state: SuggestionGraphState) -> dict:
                     debug.log_correction_result(success=True, new_title=corrected_suggestion.title)
                 else:
                     debug.log_correction_result(success=False, error="No valid JSON in response")
-                    
+
+            except AIProviderError:
+                # Typed provider errors (timeout/rate-limit/etc.) abort the
+                # whole correction phase — propagate to the node-level handler.
+                raise
             except Exception as e:
                 errors.append(f"Correction failed: {str(e)}")
                 logger.warning(f"Failed to correct suggestion: {e}")
                 debug.log_correction_result(success=False, error=str(e))
-        
+
+    except AIProviderError:
+        debug.phase_end("correct_suggestions_node", "FAILED: provider error")
+        raise
     except Exception as e:
         logger.error(f"Correction node error: {e}")
         errors.append(f"Correction error: {str(e)}")
@@ -805,7 +834,8 @@ async def correct_suggestions_node(state: SuggestionGraphState) -> dict:
         "failed_suggestions": [],  # Clear failed after correction attempt
         "validation_errors": state.get('validation_errors', []) + errors,
         "retry_count": state['retry_count'] + 1,
-        "current_stage": next_stage
+        "current_stage": next_stage,
+        "usage_records": list(state.get('usage_records', [])) + new_usage,
     }
 
 
@@ -1010,18 +1040,71 @@ async def run_suggestion_workflow(
     )
     # Log workflow start
     debug.workflow_start(provider, model or 'default', guidance_text, len(columns))
-    
+
     # Create and compile graph
     graph = create_suggestion_graph()
     app = graph.compile()
-    
-    # Run workflow
-    final_state = await app.ainvoke(state)
-    
+
+    request_id = new_request_id()
+    workflow_start = time.monotonic()
+    raised_exc: Optional[BaseException] = None
+    final_state: dict = {}
+
+    try:
+        # Run workflow
+        final_state = await app.ainvoke(state)
+    except BaseException as exc:
+        raised_exc = exc
+        raise
+    finally:
+        # Emit one metrics record per request, on both success and failure.
+        # Must not break the suggest flow: swallow any emission error.
+        try:
+            latency_ms = (time.monotonic() - workflow_start) * 1000
+            usage_records = final_state.get('usage_records', []) if final_state else []
+            totals = {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cache_read_tokens": 0,
+                "cache_creation_tokens": 0,
+            }
+            for u in usage_records:
+                for k in totals:
+                    totals[k] += int(u.get(k, 0) or 0)
+
+            validated_for_metric = final_state.get('validated_suggestions', []) if final_state else []
+            success = raised_exc is None and len(validated_for_metric) > 0
+            error_class = None
+            if raised_exc is not None:
+                err_cls = getattr(raised_exc, 'error_class', None)
+                # AIProviderError subclasses carry error_class; others leave it None.
+                error_class = err_cls.value if err_cls is not None and hasattr(err_cls, 'value') else None
+
+            record = AIMetricsRecord(
+                timestamp=time.time(),
+                request_id=request_id,
+                provider=provider,
+                model=model or "",
+                latency_ms=round(latency_ms, 2),
+                input_tokens=totals["input_tokens"],
+                output_tokens=totals["output_tokens"],
+                cache_read_tokens=totals["cache_read_tokens"],
+                cache_creation_tokens=totals["cache_creation_tokens"],
+                retry_count=(final_state.get('retry_count', 0) if final_state else 0),
+                success=success,
+                error_class=error_class,
+                effort=effort or None,
+                num_suggestions=len(validated_for_metric),
+                num_ainvoke_calls=len(usage_records),
+            )
+            await get_collector().record(record)
+        except Exception as metric_exc:
+            logger.warning("AIMetrics: failed to emit record: %s", metric_exc)
+
     # Log workflow end
     validated = final_state.get('validated_suggestions', [])
     errors = final_state.get('validation_errors', [])
-    
+
     # Deduplicate suggestions by (title, x_axis, y_axes) key
     seen = set()
     unique = []
@@ -1031,9 +1114,9 @@ async def run_suggestion_workflow(
             seen.add(key)
             unique.append(s)
     validated = unique
-    
+
     debug.workflow_end(len(validated), len(errors))
-    
+
     return (validated, errors)
 
 

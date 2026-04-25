@@ -35,11 +35,12 @@ import {
 import { Button } from '@/components/common';
 import { Sparkles, ArrowLeft, ArrowRight, Check } from 'lucide-react';
 import { useStore } from '@/store';
-import { aiApi } from '@/services/api';
+import { aiApi, AIError } from '@/services/api';
 import {
     AIProvider,
     AIProviderInfo,
     AIEffort,
+    AIErrorClass,
     AISuggestion,
     VisualizationConfig,
 } from '@/types';
@@ -173,6 +174,8 @@ export const AIWizardModal: React.FC<Props> = ({
     const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [errorClass, setErrorClass] = useState<AIErrorClass | null>(null);
+    const [retryAfterS, setRetryAfterS] = useState<number | null>(null);
     const [appliedIds, setAppliedIds] = useState<Set<string>>(new Set());
     const [appliedConfigs, setAppliedConfigs] = useState<VisualizationConfig[]>([]);
     const [maxSuggestions, setMaxSuggestions] = useState(5);
@@ -202,6 +205,8 @@ export const AIWizardModal: React.FC<Props> = ({
             setAppliedIds(new Set());
             setAppliedConfigs([]);
             setError(null);
+            setErrorClass(null);
+            setRetryAfterS(null);
         } else if (!isOpen && wasOpenRef.current) {
             // Modal just closed — cancel any in-flight suggest call.
             suggestAbortRef.current?.abort();
@@ -243,6 +248,8 @@ export const AIWizardModal: React.FC<Props> = ({
         setApiKey(key);
         setIsLoading(true);
         setError(null);
+        setErrorClass(null);
+        setRetryAfterS(null);
         setStep('suggestions');
 
         try {
@@ -267,7 +274,15 @@ export const AIWizardModal: React.FC<Props> = ({
             if (axios.isCancel(err) || (err instanceof Error && err.name === 'CanceledError')) {
                 return;
             }
-            setError(err instanceof Error ? err.message : 'Failed to generate suggestions');
+            if (err instanceof AIError) {
+                setError(err.message);
+                setErrorClass(err.error_class);
+                setRetryAfterS(err.retry_after_s ?? null);
+            } else {
+                setError(err instanceof Error ? err.message : 'Failed to generate suggestions');
+                setErrorClass('unknown');
+                setRetryAfterS(null);
+            }
         } finally {
             if (suggestAbortRef.current === controller) {
                 setIsLoading(false);
@@ -358,9 +373,12 @@ export const AIWizardModal: React.FC<Props> = ({
                         suggestions={suggestions}
                         isLoading={isLoading}
                         error={error}
+                        errorClass={errorClass}
+                        retryAfterS={retryAfterS}
                         onApply={handleApplySuggestion}
                         onApplyAll={handleApplyAll}
                         onRetry={handleRetry}
+                        onOpenSettings={() => setStep('settings')}
                         appliedIds={appliedIds}
                         providerName={providers.find(p => p.id === selectedProvider)?.name}
                     />

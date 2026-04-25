@@ -1,0 +1,25 @@
+The following visualization suggestion has validation errors:
+
+## Original Suggestion
+```json
+{{ original_suggestion }}
+```
+
+## Validation Errors
+{{ errors_text }}
+
+## Valid Column Names
+{{ columns_text }}
+
+## Your Task
+Fix the suggestion to resolve all validation errors.
+- Replace invalid column names with the closest valid match
+- Ensure viz_type requirements are met (e.g., 3+ columns for PCA/correlation/root_cause, 1+ for FFT, numeric y_axes for box)
+- For formula type: ensure additional_config.formula.input has a valid Python expression with 'result = ...'
+- Ensure title is 5-100 characters, descriptive, no AI words
+- Ensure description is 10-300 characters
+- Ensure reasoning is 20-{{ reasoning_max_chars }} characters, professional (no first-person)
+- Make the reasoning professional (no AI language)
+- Add units to axis labels
+
+Return ONLY the corrected JSON object (not an array).

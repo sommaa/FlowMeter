@@ -1,9 +1,11 @@
 """Tests for backend/app/services/ai_graph/graph.py helper functions."""
 
+import asyncio
 import pytest
 import os
 import sys
 import json
+from unittest.mock import patch, AsyncMock, MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -19,6 +21,13 @@ from app.services.ai_graph.graph import (
     get_debug_level,
     AIDebugLogger,
     create_suggestion_graph,
+    generate_suggestions_node,
+    correct_suggestions_node,
+)
+from app.services.ai_graph.errors import (
+    AIProviderTimeout,
+    AIProviderError,
+    AIRateLimited,
 )
 
 
@@ -312,3 +321,97 @@ class TestCreateSuggestionGraph:
         assert "validate_formulas" in graph.nodes
         assert "correct" in graph.nodes
         assert "retry" in graph.nodes
+
+
+def _base_state(**overrides):
+    """Helper: a valid SuggestionGraphState for node-level tests."""
+    state = initialize_state(
+        columns=[{"name": "x", "data_type": "numeric"}],
+        guidance_text="test",
+        api_key="k",
+        provider="openai",
+    )
+    state.update(overrides)
+    return state
+
+
+class TestProviderTimeout:
+    """Timeouts from ainvoke must surface as typed AIProviderTimeout."""
+
+    @pytest.mark.asyncio
+    async def test_generate_timeout_becomes_typed_error(self, monkeypatch):
+        # Model whose ainvoke never completes within the wait_for window.
+        async def _never(*_a, **_kw):
+            await asyncio.sleep(10)
+
+        fake_model = MagicMock()
+        fake_model.ainvoke = _never
+
+        monkeypatch.setattr(
+            "app.services.ai_graph.graph.get_chat_model",
+            lambda **kw: fake_model,
+        )
+        # Squash the real 90s default to something the test can actually run.
+        monkeypatch.setattr(
+            "app.services.ai_graph.graph.ainvoke_timeout_s",
+            lambda *_a, **_kw: 0.05,
+        )
+
+        with pytest.raises(AIProviderTimeout) as excinfo:
+            await generate_suggestions_node(_base_state())
+
+        assert excinfo.value.provider == "openai"
+        assert excinfo.value.elapsed_s >= 0
+
+    @pytest.mark.asyncio
+    async def test_correct_timeout_becomes_typed_error(self, monkeypatch):
+        async def _never(*_a, **_kw):
+            await asyncio.sleep(10)
+
+        fake_model = MagicMock()
+        fake_model.ainvoke = _never
+
+        monkeypatch.setattr(
+            "app.services.ai_graph.graph.get_chat_model",
+            lambda **kw: fake_model,
+        )
+        monkeypatch.setattr(
+            "app.services.ai_graph.graph.ainvoke_timeout_s",
+            lambda *_a, **_kw: 0.05,
+        )
+
+        state = _base_state(
+            failed_suggestions=[{"raw": {"title": "x"}, "errors": ["e"]}],
+            valid_column_names={"x"},
+        )
+        with pytest.raises(AIProviderTimeout) as excinfo:
+            await correct_suggestions_node(state)
+        assert excinfo.value.provider == "openai"
+
+
+class TestNetworkErrorDoesNotRetry:
+    """A transient network error must bubble out as AIProviderError, not
+    get folded into validation_errors and re-enter the schema correction loop."""
+
+    @pytest.mark.asyncio
+    async def test_generate_reraises_typed_error_verbatim(self, monkeypatch):
+        raised = AIRateLimited("rate limited", provider="openai")
+
+        async def _boom(*_a, **_kw):
+            raise raised
+
+        fake_model = MagicMock()
+        fake_model.ainvoke = _boom
+
+        monkeypatch.setattr(
+            "app.services.ai_graph.graph.get_chat_model",
+            lambda **kw: fake_model,
+        )
+
+        state = _base_state(retry_count=0)
+        with pytest.raises(AIRateLimited) as excinfo:
+            await generate_suggestions_node(state)
+
+        assert excinfo.value is raised
+        # The state dict passed in must not have been mutated to bump retry_count
+        assert state["retry_count"] == 0

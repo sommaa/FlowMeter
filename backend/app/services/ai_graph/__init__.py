@@ -10,16 +10,29 @@ from .schemas import (
     SuggestionList,
     ValidationResult,
     SuggestionGraphState,
+    ALL_VIZ_TYPES,
 )
 from .graph import create_suggestion_graph, run_suggestion_workflow
 from .providers import get_chat_model, fetch_provider_models
 from .formula_generator import generate_formula, ColumnInfo, FormulaGenerateRequest
+from .errors import (
+    AIErrorClass,
+    ERROR_CLASS_TO_HTTP,
+    AIProviderError,
+    AIProviderTimeout,
+    AIInvalidKey,
+    AIRateLimited,
+    AIQuotaExceeded,
+    AIProviderUnavailable,
+    AIInvalidOutput,
+)
 
 __all__ = [
     "VisualizationSuggestion",
     "SuggestionList",
     "ValidationResult",
     "SuggestionGraphState",
+    "ALL_VIZ_TYPES",
     "create_suggestion_graph",
     "run_suggestion_workflow",
     "get_chat_model",
@@ -27,5 +40,14 @@ __all__ = [
     "generate_formula",
     "ColumnInfo",
     "FormulaGenerateRequest",
+    "AIErrorClass",
+    "ERROR_CLASS_TO_HTTP",
+    "AIProviderError",
+    "AIProviderTimeout",
+    "AIInvalidKey",
+    "AIRateLimited",
+    "AIQuotaExceeded",
+    "AIProviderUnavailable",
+    "AIInvalidOutput",
 ]
 

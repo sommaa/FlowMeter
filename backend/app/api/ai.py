@@ -29,10 +29,39 @@ _MAX_COLUMN_NAME_CHARS = 200
 _MAX_COLUMNS = 200
 _MAX_FORMULA_DESCRIPTION_CHARS = 2000
 
-from app.services.ai_service import get_ai_service, AIVisualizationService, AIRequest, ColumnMetadata
-from app.services.ai_graph import VisualizationSuggestion as GraphSuggestion, fetch_provider_models
+from app.services.ai_service import (
+    get_ai_service,
+    AIVisualizationService,
+    AIRequest,
+    ColumnMetadata,
+    classify_and_wrap,
+)
+from app.services.ai_graph import (
+    VisualizationSuggestion as GraphSuggestion,
+    fetch_provider_models,
+    AIErrorClass,
+    AIProviderError,
+    ERROR_CLASS_TO_HTTP,
+)
+from app.services.ai_metrics import build_aggregates, compute_cost_usd, get_collector
 from app.services.data_service import get_data_service
 from app.models.schemas import APIResponse, VisualizationConfig
+
+
+def _ai_error_detail(exc: AIProviderError) -> dict:
+    """Shape an AIProviderError into the structured ``detail`` payload.
+
+    The FastAPI ``HTTPException(detail=...)`` bubbles up as JSON under
+    ``detail``. We put the typed fields there so the frontend can branch on
+    ``error_class`` without string-matching the free-form ``message``.
+    """
+    return {
+        "error_class": exc.error_class.value,
+        "message": exc.message,
+        "provider": exc.provider,
+        "retry_advised": bool(exc.retry_advised),
+        "retry_after_s": exc.retry_after_s,
+    }
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ai", tags=["AI"])
@@ -96,20 +125,18 @@ async def list_providers():
         APIResponse with data containing list of providers:
             - id: Provider identifier ("openai", "gemini", "claude")
             - name: Display name
-            - models: Available models
-            - description: Provider description
+
+    The available models for each provider are fetched separately via
+    ``POST /ai/providers/{provider}/models`` once an API key is supplied.
 
     Example response:
         ```json
         {
           "success": true,
           "data": [
-            {
-              "id": "openai",
-              "name": "OpenAI",
-              "models": ["gpt-4", "gpt-3.5-turbo"],
-              "description": "OpenAI GPT models"
-            }
+            {"id": "openai", "name": "OpenAI ChatGPT"},
+            {"id": "gemini", "name": "Google Gemini"},
+            {"id": "claude", "name": "Anthropic Claude"}
           ]
         }
         ```
@@ -129,15 +156,19 @@ async def fetch_models(provider: str, request: FetchModelsRequest):
     """Fetch available models from a provider's API in real-time.
 
     Queries the provider's model-listing endpoint using the supplied API key
-    and returns models available to the user. Falls back to the hardcoded
-    catalog on failure.
+    and returns models available to the user. On failure, returns an empty
+    list with ``fetched=false`` and the error message in ``error``; there is
+    no static fallback catalog.
 
     Args:
         provider: AI provider identifier ("gemini", "openai", or "claude").
         request: Request body containing the provider API key.
 
     Returns:
-        APIResponse with list of model dicts (id, name, description).
+        APIResponse whose ``data`` is ``{models, fetched, error}``:
+            - models: list of ``{id, name, description}`` dicts
+            - fetched: True on a successful provider call, False otherwise
+            - error: provider error message when ``fetched`` is False
     """
     if provider not in ("gemini", "openai", "claude"):
         raise HTTPException(
@@ -189,9 +220,17 @@ async def suggest_visualizations(request: SuggestRequest):
     Raises:
         HTTPException 404: Dataset not found
         HTTPException 400: Invalid provider, missing descriptions, or empty guidance
-        HTTPException 401: Invalid API key
-        HTTPException 429: API rate limit exceeded
-        HTTPException 500: AI provider error
+        HTTPException 401: Invalid API key (``error_class=invalid_key``)
+        HTTPException 422: Schema retries exhausted (``error_class=invalid_output``)
+        HTTPException 429: Rate-limit / quota (``error_class=rate_limit|quota_exceeded``)
+        HTTPException 502: Provider unavailable (``error_class=provider_unavailable``)
+        HTTPException 504: Provider timeout (``error_class=timeout``)
+        HTTPException 500: Other AI provider error (``error_class=unknown``)
+
+    On any of the AI-typed errors above, the response ``detail`` is a
+    structured object: ``{error_class, message, provider, retry_advised,
+    retry_after_s}`` so the frontend can branch on ``error_class`` instead
+    of parsing the message string.
 
     Example request:
         ```json
@@ -265,8 +304,8 @@ async def suggest_visualizations(request: SuggestRequest):
         ))
     
     try:
-        # Build AI request
-        # available_viz_types uses default from schema
+        # Build AI request — `available_viz_types` defaults to every VizType
+        # via AIRequest's default_factory, which derives from the schema.
         ai_request = AIRequest(
             columns=columns,
             guidance_text=request.guidance_text,
@@ -294,24 +333,54 @@ async def suggest_visualizations(request: SuggestRequest):
         
     except ImportError as e:
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail=f"Provider dependency not installed: {str(e)}"
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"AI suggestion failed: {e}", exc_info=True)
-        
-        # Provide more helpful error messages for common failures
-        error_msg = str(e).lower()
-        if "api key" in error_msg or "authentication" in error_msg or "unauthorized" in error_msg:
-            raise HTTPException(status_code=401, detail="Invalid API key. Please check your API key and try again.")
-        elif "rate limit" in error_msg or "quota" in error_msg:
-            raise HTTPException(status_code=429, detail="API rate limit exceeded. Please wait and try again.")
-        elif "model" in error_msg and "not found" in error_msg:
-            raise HTTPException(status_code=400, detail="AI model not available. Please try a different provider.")
-        else:
-            raise HTTPException(status_code=500, detail=f"AI suggestion failed: {str(e)}")
+
+        # Classify into a typed AIProviderError, then map error_class → status.
+        wrapped = classify_and_wrap(e, provider=request.provider)
+        status = ERROR_CLASS_TO_HTTP.get(wrapped.error_class, 500)
+        raise HTTPException(status_code=status, detail=_ai_error_detail(wrapped))
+
+
+@router.get("/metrics", response_model=APIResponse)
+async def ai_metrics(limit: int = 50):
+    """Return recent AI suggestion metrics with aggregate statistics.
+
+    Records are purely numeric/categorical — no prompt text, column
+    descriptions, or user guidance is captured (Sprint 2 guarantee).
+
+    Args:
+        limit: Maximum number of recent records to return (default 50).
+
+    Returns:
+        APIResponse with:
+            - records: Most-recent-first list of AIMetricsRecord dicts (with
+              a ``cost_usd`` field attached when a price row exists).
+            - aggregates: p50/p95 latency (ms), success_rate,
+              ``by_provider`` token totals, and ``total_cost_usd`` (nullable).
+    """
+    collector = get_collector()
+    effective_limit = max(1, min(int(limit), 500))
+    recent = collector.recent(effective_limit)
+
+    rows = []
+    for r in recent:
+        d = r.to_dict()
+        d["cost_usd"] = compute_cost_usd(r)
+        rows.append(d)
+
+    return APIResponse(
+        success=True,
+        data={
+            "records": rows,
+            "aggregates": build_aggregates(recent),
+        },
+    )
 
 
 @router.post("/apply-suggestions", response_model=APIResponse)
@@ -421,9 +490,15 @@ async def generate_formula_endpoint(request: FormulaGenerateApiRequest):
 
     Raises:
         HTTPException 400: Invalid input or validation failure
-        HTTPException 401: Invalid API key
-        HTTPException 429: API rate limit exceeded
-        HTTPException 500: AI generation error
+        HTTPException 401: Invalid API key (``error_class=invalid_key``)
+        HTTPException 422: Schema retries exhausted (``error_class=invalid_output``)
+        HTTPException 429: Rate-limit / quota (``error_class=rate_limit|quota_exceeded``)
+        HTTPException 502: Provider unavailable (``error_class=provider_unavailable``)
+        HTTPException 504: Provider timeout (``error_class=timeout``)
+        HTTPException 500: Other AI generation error (``error_class=unknown``)
+
+    On any of the AI-typed errors above, the response ``detail`` follows the
+    same structured shape as ``/ai/suggest``.
 
     Example request:
         ```json
@@ -511,13 +586,8 @@ async def generate_formula_endpoint(request: FormulaGenerateApiRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Formula generation failed: {e}", exc_info=True)
-        
-        # Provide helpful error messages
-        error_msg = str(e).lower()
-        if "api key" in error_msg or "authentication" in error_msg or "unauthorized" in error_msg:
-            raise HTTPException(status_code=401, detail="Invalid API key. Please check your API key and try again.")
-        elif "rate limit" in error_msg or "quota" in error_msg:
-            raise HTTPException(status_code=429, detail="API rate limit exceeded. Please wait and try again.")
-        else:
-            raise HTTPException(status_code=500, detail=f"Formula generation failed: {str(e)}")
+
+        wrapped = classify_and_wrap(e, provider=request.provider)
+        status = ERROR_CLASS_TO_HTTP.get(wrapped.error_class, 500)
+        raise HTTPException(status_code=status, detail=_ai_error_detail(wrapped))
 

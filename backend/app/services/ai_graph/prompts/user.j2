@@ -1,0 +1,39 @@
+## Dataset Columns
+{{ columns_text }}
+{{ datetime_hint }}
+
+## User's Analysis Goals
+<user_guidance>{{ guidance_text }}</user_guidance>
+{{ existing_text }}
+
+## Your Task
+Generate {{ max_suggestions }} visualization suggestions that best address the user's goals.
+Each suggestion should use ONLY the columns listed above.
+Focus on insights that would be valuable for technical reports.
+
+## Available Visualization Types
+{{ viz_types }}
+
+Return your suggestions as a JSON array with these fields for each:
+- title: string (descriptive, Title Case, 5-100 characters)
+- description: string (one-line summary, 10-300 characters)
+- viz_type: string (from available types)
+- x_axis: string (column name — REQUIRED and non-empty for universal/area/hist/box/regression/fft/pca; may be empty ONLY for correlation/root_cause/kpi)
+- y_axes: array of strings (column names, can be empty for formula)
+- x_label: string (with units)
+- y_label: string (with units)
+- legend_labels: array of strings (custom descriptive names matching y_axes order)  
+- plot_type: string ("line", "scatter", "step", "bar", "line+scatter") - for universal type
+- confidence: number (0.0-1.0)
+- reasoning: string (professional technical note, 20-{{ reasoning_max_chars }} characters, no first-person language)
+- additional_config: object (optional, examples below)
+
+additional_config examples:
+  For regression: { "add_regression": true, "regression_degree": 2, "show_confidence_interval": true }
+  For PCA: { "pca_components": 3 }
+  For formula: { "formula": { "input": "result = col['A'] * 2" } }
+  For KPI: { "kpi_metrics": [
+      { "label": "Total Energy", "operation": "sum", "column": "power", "unit": "kWh", "decimals": 0 },
+      { "label": "Avg Temperature", "operation": "avg", "column": "temp", "unit": "°C", "decimals": 1 },
+      { "label": "Efficiency", "operation": "formula", "formula": "col['power'].sum() / col['fuel'].sum()", "unit": "%", "decimals": 2 }
+  ] }

@@ -6,8 +6,9 @@ Provides a unified interface to create chat models for:
 - OpenAI
 - Anthropic (Claude)
 
-Supports dynamic model fetching from provider APIs when an API key is
-available, with fallback to a hardcoded catalog.
+Also exposes ``fetch_provider_models`` for live model-listing against each
+provider's API. Failures return an empty list plus an error string — there
+is no static fallback catalog.
 """
 
 import logging
@@ -51,6 +52,24 @@ _GEMINI_EFFORT_BUDGET = {
 # churn in the validation/correction retry loop; higher variety is not useful
 # when the output must match a Pydantic schema.
 _SUGGESTION_TEMPERATURE = 0.2
+
+# Per-call timeout (seconds) wrapping `ainvoke`. 90s leaves room for one
+# LangChain-level transient-error retry (max_retries=1 ≈ 60s per attempt).
+# Claude extended thinking can legitimately run longer — tracked separately.
+_AINVOKE_TIMEOUT_S = 90.0
+_AINVOKE_TIMEOUT_CLAUDE_THINKING_S = 180.0
+
+
+def ainvoke_timeout_s(provider: ProviderType, effort: Optional[EffortType]) -> float:
+    """Return the wall-clock timeout for a single `ainvoke` call.
+
+    Claude with extended thinking (effort medium/high) gets a larger budget;
+    all other paths use the default. Called from graph nodes that wrap
+    `model.ainvoke(...)` in `asyncio.wait_for`.
+    """
+    if provider == "claude" and effort in ("medium", "high"):
+        return _AINVOKE_TIMEOUT_CLAUDE_THINKING_S
+    return _AINVOKE_TIMEOUT_S
 
 
 # ============= Provider Factory =============
@@ -125,6 +144,7 @@ def _create_gemini_model(
         temperature=_SUGGESTION_TEMPERATURE,
         max_output_tokens=max_tokens,
         convert_system_message_to_human=True,
+        max_retries=1,
     )
 
     if effort:
@@ -163,6 +183,7 @@ def _create_openai_model(
         api_key=api_key,
         temperature=_SUGGESTION_TEMPERATURE,
         max_tokens=max_tokens,
+        max_retries=1,
         model_kwargs=model_kwargs if model_kwargs else {},
     )
 
@@ -192,6 +213,7 @@ def _create_claude_model(
         api_key=api_key,
         temperature=_SUGGESTION_TEMPERATURE,
         max_tokens=max_tokens,
+        max_retries=1,
     )
 
     if effort:

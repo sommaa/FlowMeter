@@ -46,8 +46,31 @@ const api: AxiosInstance = axios.create({
 // Error handler
 const handleError = (error: AxiosError): never => {
   if (error.response) {
-    const data = error.response.data as { detail?: string; error?: string };
-    throw new Error(data.detail || data.error || 'Request failed');
+    const data = error.response.data as {
+      detail?: string | { error_class?: string; message?: string; [k: string]: unknown };
+      error?: string;
+    };
+    // FastAPI may return `detail` as either a string or a structured object.
+    // For AI endpoints the object carries an `error_class` discriminator; we
+    // surface the human message on the Error and stash the raw payload so
+    // aiApi wrappers can re-throw a typed AIError.
+    let message = 'Request failed';
+    if (typeof data.detail === 'string') {
+      message = data.detail;
+    } else if (data.detail && typeof data.detail === 'object') {
+      message = (data.detail.message as string) || data.error || message;
+    } else if (data.error) {
+      message = data.error;
+    }
+    const err = new Error(message) as Error & {
+      __aiDetail?: unknown;
+      __status?: number;
+    };
+    if (data.detail && typeof data.detail === 'object' && 'error_class' in data.detail) {
+      err.__aiDetail = data.detail;
+      err.__status = error.response.status;
+    }
+    throw err;
   }
   throw new Error(error.message || 'Network error');
 };
@@ -367,7 +390,52 @@ import type {
   AISuggestResponse,
   AISuggestion,
   AIApplyResponse,
+  AIErrorClass,
+  AIErrorDetail,
 } from '@/types';
+
+/**
+ * Typed error raised by `aiApi.suggest` and `aiApi.generateFormula` when the
+ * backend returns a structured `detail` payload (see `AIErrorDetail`).
+ * UI components branch on `error_class` rather than parsing `message`.
+ */
+export class AIError extends Error {
+  error_class: AIErrorClass;
+  provider?: string | null;
+  retry_advised: boolean;
+  retry_after_s?: number | null;
+  status?: number;
+
+  constructor(detail: AIErrorDetail, status?: number) {
+    super(detail.message || 'AI request failed');
+    this.name = 'AIError';
+    this.error_class = detail.error_class;
+    this.provider = detail.provider;
+    this.retry_advised = Boolean(detail.retry_advised);
+    this.retry_after_s = detail.retry_after_s;
+    this.status = status;
+  }
+}
+
+/**
+ * Inspect an error thrown from an `aiApi` call (already wrapped by the axios
+ * interceptor into a plain `Error`). If the original response carried an
+ * `AIErrorDetail`, rethrow it as an `AIError`; otherwise leave untouched.
+ *
+ * Used only inside the suggest/generateFormula wrappers so that consumers
+ * receive a typed error without needing to know about axios internals.
+ */
+function _rethrowAsAIError(err: unknown): never {
+  // The `handleError` interceptor at the top of this file turns response
+  // errors into plain Error and stashes the structured AI payload on
+  // `__aiDetail` / `__status`. We read those off here and rethrow as a
+  // typed AIError so call sites don't need to know about axios internals.
+  const maybeAI = (err as { __aiDetail?: AIErrorDetail; __status?: number });
+  if (maybeAI.__aiDetail && maybeAI.__aiDetail.error_class) {
+    throw new AIError(maybeAI.__aiDetail, maybeAI.__status);
+  }
+  throw err as Error;
+}
 
 export const aiApi = {
   /**
@@ -406,11 +474,16 @@ export const aiApi = {
     request: AISuggestRequest,
     signal?: AbortSignal,
   ): Promise<AISuggestResponse> => {
-    const response = await api.post<APIResponse<AISuggestResponse>>(
-      '/ai/suggest',
-      request,
-      { signal },
-    );
+    let response;
+    try {
+      response = await api.post<APIResponse<AISuggestResponse>>(
+        '/ai/suggest',
+        request,
+        { signal },
+      );
+    } catch (err) {
+      _rethrowAsAIError(err);
+    }
     if (!response.data.data) {
       throw new Error('Failed to get AI suggestions');
     }
@@ -464,7 +537,12 @@ export const aiApi = {
     }>;
     description: string;
   }): Promise<{ formula: string; provider: string }> => {
-    const response = await api.post<APIResponse<{ formula: string; provider: string }>>('/ai/generate-formula', request);
+    let response;
+    try {
+      response = await api.post<APIResponse<{ formula: string; provider: string }>>('/ai/generate-formula', request);
+    } catch (err) {
+      _rethrowAsAIError(err);
+    }
     if (!response.data.data) {
       throw new Error('Failed to generate formula');
     }

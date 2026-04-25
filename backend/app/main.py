@@ -98,7 +98,15 @@ async def lifespan(app: FastAPI):
         prewarm_kaleido()
     except Exception as e:
         logger.warning(f"Kaleido prewarm skipped: {e}")
-    
+
+    # Repopulate AI metrics ring from on-disk JSONL so /ai/metrics survives
+    # restarts. Failures here never block startup.
+    try:
+        from app.services.ai_metrics import get_collector
+        get_collector().load_recent_from_disk()
+    except Exception as e:
+        logger.warning(f"AIMetrics load_recent_from_disk skipped: {e}")
+
     yield
     
     # --- Shutdown ---

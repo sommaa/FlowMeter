@@ -81,6 +81,35 @@ export interface ErrorResponse {
   detail?: string;
 }
 
+// ============= AI Error Model =============
+
+/**
+ * AI provider error discriminator. Mirrors backend `AIErrorClass` enum in
+ * `backend/app/services/ai_graph/errors.py`. The frontend branches on this
+ * value to show a specific, actionable error message instead of a raw
+ * provider string.
+ */
+export type AIErrorClass =
+  | 'invalid_key'
+  | 'rate_limit'
+  | 'quota_exceeded'
+  | 'timeout'
+  | 'provider_unavailable'
+  | 'invalid_output'
+  | 'unknown';
+
+/**
+ * Shape of the FastAPI `detail` payload for a typed AI error.
+ * Served by `/api/v1/ai/suggest` and `/api/v1/ai/generate-formula`.
+ */
+export interface AIErrorDetail {
+  error_class: AIErrorClass;
+  message: string;
+  provider?: string | null;
+  retry_advised: boolean;
+  retry_after_s?: number | null;
+}
+
 // ============= Data Types =============
 
 export interface DatasetInfo {

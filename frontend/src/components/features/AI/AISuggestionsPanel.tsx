@@ -39,8 +39,44 @@ import {
     RefreshCw,
     Lightbulb
 } from 'lucide-react';
-import { AISuggestion } from '@/types';
+import { AISuggestion, AIErrorClass } from '@/types';
 import { cn } from '@/lib/utils';
+
+/**
+ * Map an `AIErrorClass` to a friendly panel title + actionable body copy.
+ * Falls back to a generic "AI Suggestion Failed" when class is unknown so
+ * the call site never has to handle a missing case.
+ */
+const _ERROR_COPY: Record<AIErrorClass, { title: string; body: string }> = {
+    invalid_key: {
+        title: 'API Key Rejected',
+        body: 'Your API key was rejected by the provider. Open AI Settings to update it.',
+    },
+    rate_limit: {
+        title: 'Provider Rate Limit Reached',
+        body: 'The provider is throttling requests. Wait a moment and try again.',
+    },
+    quota_exceeded: {
+        title: 'Provider Quota Exceeded',
+        body: 'Your account has run out of quota or credits with this provider. Check your plan or switch providers.',
+    },
+    timeout: {
+        title: 'Provider Took Too Long',
+        body: 'The provider timed out. Try a lower reasoning effort, a smaller request, or a different model.',
+    },
+    provider_unavailable: {
+        title: 'Provider Unavailable',
+        body: 'The provider is having issues right now. Try again shortly or switch providers.',
+    },
+    invalid_output: {
+        title: 'Model Output Invalid',
+        body: "The model couldn't produce valid suggestions after multiple attempts. Try rephrasing your analysis goals.",
+    },
+    unknown: {
+        title: 'AI Suggestion Failed',
+        body: 'Something unexpected went wrong. Check the message below and try again.',
+    },
+};
 
 /**
  * Props for the AISuggestionsPanel component.
@@ -59,9 +95,19 @@ interface Props {
     suggestions: AISuggestion[];
     isLoading: boolean;
     error?: string | null;
+    /**
+     * Typed error discriminator. When provided, the error card shows a
+     * tailored title + body copy and may expose an "Open Settings" CTA for
+     * credential-class failures.
+     */
+    errorClass?: AIErrorClass | null;
+    /** Retry hint (seconds) pulled from the provider's Retry-After header. */
+    retryAfterS?: number | null;
     onApply: (suggestion: AISuggestion) => void;
     onApplyAll: () => void;
     onRetry?: () => void;
+    /** Open the AI Settings modal. Wired only for credential errors. */
+    onOpenSettings?: () => void;
     appliedIds: Set<string>;
     providerName?: string;
 }
@@ -146,9 +192,12 @@ export const AISuggestionsPanel: React.FC<Props> = ({
     suggestions,
     isLoading,
     error,
+    errorClass,
+    retryAfterS,
     onApply,
     onApplyAll,
     onRetry,
+    onOpenSettings,
     appliedIds,
     providerName
 }) => {
@@ -170,24 +219,42 @@ export const AISuggestionsPanel: React.FC<Props> = ({
 
     // Error state
     if (error) {
+        const copy = errorClass ? _ERROR_COPY[errorClass] : _ERROR_COPY.unknown;
+        const showSettings = errorClass === 'invalid_key' && Boolean(onOpenSettings);
+        const retryLabel = retryAfterS && retryAfterS > 0
+            ? `Try Again (${Math.ceil(retryAfterS)}s)`
+            : 'Try Again';
+
         return (
             <Card className="p-6 border-border bg-card">
                 <div className="flex items-start gap-3">
                     <AlertCircle className="w-5 h-5 text-red-500 dark:text-red-400 flex-shrink-0 mt-0.5" />
                     <div className="flex-1">
-                        <h3 className="font-semibold text-foreground">AI Suggestion Failed</h3>
-                        <p className="text-sm text-muted-foreground mt-1">{error}</p>
-                        {onRetry && (
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={onRetry}
-                                className="mt-3"
-                            >
-                                <RefreshCw className="w-4 h-4 mr-1" />
-                                Try Again
-                            </Button>
-                        )}
+                        <h3 className="font-semibold text-foreground">{copy.title}</h3>
+                        <p className="text-sm text-muted-foreground mt-1">{copy.body}</p>
+                        {/* Provider's raw message, kept short for debugging. */}
+                        <p className="text-xs text-muted-foreground mt-2 break-words">{error}</p>
+                        <div className="flex gap-2 mt-3">
+                            {showSettings && onOpenSettings && (
+                                <Button
+                                    variant="default"
+                                    size="sm"
+                                    onClick={onOpenSettings}
+                                >
+                                    Open AI Settings
+                                </Button>
+                            )}
+                            {onRetry && (
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={onRetry}
+                                >
+                                    <RefreshCw className="w-4 h-4 mr-1" />
+                                    {retryLabel}
+                                </Button>
+                            )}
+                        </div>
                     </div>
                 </div>
             </Card>

@@ -231,4 +231,102 @@ describe('AISuggestionsPanel', () => {
         fireEvent.click(card!);
         expect(screen.queryByText('Should not appear')).toBeNull();
     });
+
+    describe('typed error rendering', () => {
+        it('shows tailored copy and Open AI Settings CTA for invalid_key', () => {
+            const onOpenSettings = vi.fn();
+            render(
+                <AISuggestionsPanel
+                    {...defaultProps}
+                    error="bad key from provider"
+                    errorClass="invalid_key"
+                    onOpenSettings={onOpenSettings}
+                />
+            );
+            expect(screen.getByText('API Key Rejected')).toBeTruthy();
+            expect(screen.getByText('bad key from provider')).toBeTruthy();
+            const settingsBtn = screen.getByText('Open AI Settings');
+            fireEvent.click(settingsBtn);
+            expect(onOpenSettings).toHaveBeenCalledTimes(1);
+        });
+
+        it('renders rate-limit copy with Retry-After countdown in retry label', () => {
+            render(
+                <AISuggestionsPanel
+                    {...defaultProps}
+                    error="429 too many"
+                    errorClass="rate_limit"
+                    retryAfterS={45}
+                />
+            );
+            expect(screen.getByText('Provider Rate Limit Reached')).toBeTruthy();
+            expect(screen.getByText('Try Again (45s)')).toBeTruthy();
+        });
+
+        it('renders timeout copy when error_class is timeout', () => {
+            render(
+                <AISuggestionsPanel
+                    {...defaultProps}
+                    error="elapsed=120s"
+                    errorClass="timeout"
+                />
+            );
+            expect(screen.getByText('Provider Took Too Long')).toBeTruthy();
+        });
+
+        it('renders quota_exceeded copy', () => {
+            render(
+                <AISuggestionsPanel
+                    {...defaultProps}
+                    error="balance=0"
+                    errorClass="quota_exceeded"
+                />
+            );
+            expect(screen.getByText('Provider Quota Exceeded')).toBeTruthy();
+        });
+
+        it('renders provider_unavailable copy', () => {
+            render(
+                <AISuggestionsPanel
+                    {...defaultProps}
+                    error="503"
+                    errorClass="provider_unavailable"
+                />
+            );
+            expect(screen.getByText('Provider Unavailable')).toBeTruthy();
+        });
+
+        it('renders invalid_output copy', () => {
+            render(
+                <AISuggestionsPanel
+                    {...defaultProps}
+                    error="schema retries exhausted"
+                    errorClass="invalid_output"
+                />
+            );
+            expect(screen.getByText('Model Output Invalid')).toBeTruthy();
+        });
+
+        it('falls back to unknown copy when no errorClass is provided', () => {
+            render(
+                <AISuggestionsPanel
+                    {...defaultProps}
+                    error="mystery"
+                />
+            );
+            expect(screen.getByText('AI Suggestion Failed')).toBeTruthy();
+        });
+
+        it('does not show Open AI Settings for non-credential error classes', () => {
+            render(
+                <AISuggestionsPanel
+                    {...defaultProps}
+                    error="429"
+                    errorClass="rate_limit"
+                    onOpenSettings={vi.fn()}
+                />
+            );
+            expect(screen.queryByText('Open AI Settings')).toBeNull();
+        });
+    });
 });

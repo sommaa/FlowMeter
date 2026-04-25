@@ -19,6 +19,21 @@ import asyncio
 from typing import Optional
 import logging
 
+from .ai_graph import (
+    run_suggestion_workflow,
+    VisualizationSuggestion as GraphSuggestion,
+    get_chat_model,
+    ALL_VIZ_TYPES,
+    AIErrorClass,
+    AIProviderError,
+    AIProviderTimeout,
+    AIInvalidKey,
+    AIRateLimited,
+    AIQuotaExceeded,
+    AIProviderUnavailable,
+    AIInvalidOutput,
+)
+
 # Control characters that would let user input break prompt structure or
 # confuse the tokenizer. We keep newlines and tabs; strip everything else
 # in the C0/C1 ranges.
@@ -54,11 +69,118 @@ def _sanitize_user_text(text: str) -> str:
     sanitized = sanitized.replace("</column_description>", "‹/column_description›")
     return sanitized
 
-from .ai_graph import (
-    run_suggestion_workflow,
-    VisualizationSuggestion as GraphSuggestion,
-    get_chat_model,
-)
+
+def _extract_retry_after_s(exc: BaseException) -> Optional[float]:
+    """Extract a Retry-After hint from a provider exception, if present.
+
+    Anthropic/OpenAI expose the raw HTTP response on `.response`; headers
+    may be a mapping-like object. Missing/malformed → None.
+    """
+    response = getattr(exc, "response", None)
+    if response is None:
+        return None
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return None
+    getter = getattr(headers, "get", None)
+    if not callable(getter):
+        return None
+    retry_after = getter("retry-after") or getter("Retry-After")
+    if not retry_after:
+        return None
+    try:
+        return float(retry_after)
+    except (ValueError, TypeError):
+        return None
+
+
+def _classify_exception(exc: BaseException) -> AIErrorClass:
+    """Map a provider exception to a typed AIErrorClass.
+
+    Inspects the exception's module/class name to match known provider SDK
+    shapes (anthropic, openai, google.genai). Falls back to substring
+    matching on the message for wrapped exceptions or unknown providers.
+
+    Kept deliberately import-free so provider SDK version drift (renamed
+    classes, new hierarchies) can't crash the classifier — unknown shapes
+    simply fall through to the substring fallback.
+    """
+    if isinstance(exc, AIProviderError):
+        return exc.error_class
+
+    module = getattr(type(exc), "__module__", "") or ""
+    name = type(exc).__name__
+
+    if module.startswith("anthropic") or module.startswith("openai"):
+        if name in ("AuthenticationError", "PermissionDeniedError"):
+            return AIErrorClass.INVALID_KEY
+        if name == "RateLimitError":
+            return AIErrorClass.RATE_LIMIT
+        if name == "APITimeoutError":
+            return AIErrorClass.TIMEOUT
+        if name in ("APIConnectionError", "InternalServerError"):
+            return AIErrorClass.PROVIDER_UNAVAILABLE
+
+    if module.startswith("google.genai") or module.startswith("google.api_core"):
+        code = getattr(exc, "code", None)
+        if code in (401, 403):
+            return AIErrorClass.INVALID_KEY
+        if code == 429:
+            msg_lower = str(exc).lower()
+            if "quota" in msg_lower:
+                return AIErrorClass.QUOTA_EXCEEDED
+            return AIErrorClass.RATE_LIMIT
+        if code == 408:
+            return AIErrorClass.TIMEOUT
+        if isinstance(code, int) and code >= 500:
+            return AIErrorClass.PROVIDER_UNAVAILABLE
+
+    # Last-resort substring heuristic. Covers wrapped/unknown exceptions
+    # whose SDK module/name isn't recognized above.
+    msg = str(exc).lower()
+    if "api key" in msg or "authentication" in msg or "unauthorized" in msg:
+        return AIErrorClass.INVALID_KEY
+    if "quota" in msg:
+        return AIErrorClass.QUOTA_EXCEEDED
+    if "rate limit" in msg or "too many requests" in msg:
+        return AIErrorClass.RATE_LIMIT
+    if "timeout" in msg or "timed out" in msg:
+        return AIErrorClass.TIMEOUT
+    return AIErrorClass.UNKNOWN
+
+
+def classify_and_wrap(
+    exc: BaseException, provider: Optional[str] = None
+) -> AIProviderError:
+    """Convert an arbitrary exception into a typed `AIProviderError`.
+
+    Pass-through if `exc` is already typed. Otherwise classifies and
+    returns the right subclass, preserving any Retry-After hint.
+    """
+    if isinstance(exc, AIProviderError):
+        return exc
+
+    cls = _classify_exception(exc)
+    retry_after = _extract_retry_after_s(exc)
+    message = str(exc) or type(exc).__name__
+
+    if cls == AIErrorClass.TIMEOUT:
+        return AIProviderTimeout(
+            provider=provider or "unknown", elapsed_s=0.0, message=message
+        )
+    if cls == AIErrorClass.INVALID_KEY:
+        return AIInvalidKey(message, provider=provider)
+    if cls == AIErrorClass.RATE_LIMIT:
+        return AIRateLimited(message, provider=provider, retry_after_s=retry_after)
+    if cls == AIErrorClass.QUOTA_EXCEEDED:
+        return AIQuotaExceeded(message, provider=provider)
+    if cls == AIErrorClass.PROVIDER_UNAVAILABLE:
+        return AIProviderUnavailable(message, provider=provider)
+    if cls == AIErrorClass.INVALID_OUTPUT:
+        return AIInvalidOutput(message, provider=provider)
+    return AIProviderError(message, provider=provider)
+
+
 from pydantic import BaseModel, Field
 from app.models.schemas import (
     VisualizationConfig,
@@ -82,8 +204,8 @@ logger = logging.getLogger(__name__)
 def _get_debug_level() -> int:
     """Get debug level from AI_DEBUG_LEVEL environment variable.
 
-    Returns:
-        Integer debug level (0=off, 1=basic, 2=verbose). Defaults to 0.
+    Returns the integer level used by ``ai_graph.graph.AIDebugLogger``
+    (0=OFF, 1=SUMMARY, 2=STANDARD, 3=VERBOSE, 4=TRACE). Defaults to 0.
     """
     try:
         return int(os.environ.get("AI_DEBUG_LEVEL", "0"))
@@ -131,8 +253,8 @@ class AIRequest(BaseModel):
     columns: list[ColumnMetadata] = Field(..., description="List of column metadata with descriptions")
     guidance_text: str = Field(..., description="User's free-form description of analysis goals")
     available_viz_types: list[str] = Field(
-        default=["universal", "area", "hist", "box", "regression", "pca", "formula", "correlation"],
-        description="List of supported visualization types"
+        default_factory=lambda: list(ALL_VIZ_TYPES),
+        description="List of supported visualization types (defaults to every VizType)"
     )
     existing_visualizations: list[str] = Field(default=[], description="Titles of existing visualizations to avoid duplicates")
     max_suggestions: int = Field(default=5, ge=1, le=10, description="Maximum number of suggestions to generate")
@@ -153,7 +275,9 @@ class AIVisualizationService:
         - Formula syntax validation for computed columns
         - Automatic retry with correction prompts on validation failure
 
-    Supported providers: OpenAI (GPT-4), Anthropic (Claude), Google (Gemini)
+    Supported providers: OpenAI, Anthropic (Claude), Google (Gemini).
+    Specific model names are resolved per-request from each provider's
+    live model-listing endpoint.
     """
 
     def __init__(self):
