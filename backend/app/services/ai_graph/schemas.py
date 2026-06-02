@@ -622,6 +622,11 @@ class SuggestionGraphState(TypedDict, total=False):
     # Input
     columns: list[dict]  # Column metadata
     guidance_text: str
+    # Pre-rendered markdown dataset profile (roles, null%, cardinality,
+    # examples, datetime candidates, strong correlations). Injected into the
+    # user prompt on the metadata-only path; empty on the agent path, which
+    # fetches the same profile via the overview() tool.
+    dataset_profile: str
     available_viz_types: list[str]
     existing_visualizations: list[str]
     max_suggestions: int

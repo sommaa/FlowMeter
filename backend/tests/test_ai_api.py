@@ -133,9 +133,10 @@ class TestSuggestLengthCaps:
 class TestSuggestDatasetAccess:
     """Tests for the dataset_access flag on POST /api/v1/ai/suggest.
 
-    Privacy is ON by default — the request must succeed without ever calling
-    ``get_dataset``. When the user opts in, the API must fetch the DataFrame
-    and surface a 404 if it's missing.
+    On the default (metadata-only) path the API fetches the DataFrame to build
+    a server-side grounding profile but does NOT enable the agent/tool loop.
+    When the user opts in to dataset_access, the API fetches the DataFrame for
+    the bound tools and surfaces a 404 if it's missing.
     """
 
     def _meta(self):
@@ -157,26 +158,41 @@ class TestSuggestDatasetAccess:
         p.update(overrides)
         return p
 
-    def test_default_does_not_fetch_dataset(self, client):
-        # When dataset_access is left unset (defaults to False), the API must
-        # NOT call get_dataset — that path would only be needed for tool-use.
+    def test_default_builds_profile_without_enabling_tools(self, client):
+        # With dataset_access unset (False), the API fetches the DataFrame to
+        # build a grounding profile (roles, null%, examples, correlations) and
+        # threads it into the AIRequest — but must NOT enable the agent/tool
+        # path (no dataframe handed to the workflow, dataset_access stays False).
+        import pandas as pd
         mock_data_service = MagicMock()
         mock_data_service.get_metadata.return_value = self._meta()
         mock_data_service.get_statistics.return_value = []
+        mock_data_service.get_dataset.return_value = pd.DataFrame(
+            {"x": [1.0, 2.0, 3.0, 4.0]}
+        )
 
-        mock_ai = MagicMock()
-        # Use AsyncMock-equivalent via a coroutine that returns []
-        async def _ok(*args, **kwargs):
+        captured = {}
+
+        async def _capture(*args, **kwargs):
+            captured["request"] = kwargs.get("request")
             return []
-        mock_ai.suggest_visualizations = _ok
+        mock_ai = MagicMock()
+        mock_ai.suggest_visualizations = _capture
 
         with patch("app.api.ai.get_data_service", return_value=mock_data_service), \
              patch("app.api.ai.get_ai_service", return_value=mock_ai):
             response = client.post("/api/v1/ai/suggest", json=self._payload())
 
         assert response.status_code == 200
-        # The privacy-preserving path must never touch get_dataset.
-        mock_data_service.get_dataset.assert_not_called()
+        # Default path fetches the dataset once, purely to profile it.
+        mock_data_service.get_dataset.assert_called_once_with("ds1")
+        req = captured["request"]
+        assert req is not None
+        # Stays on the metadata path: tools NOT enabled.
+        assert req.dataset_access is False
+        assert req.dataframe is None
+        # The grounding profile was computed and threaded through.
+        assert "Dataset Profile" in req.dataset_profile
 
     def test_dataset_access_true_fetches_and_404s_when_missing(self, client):
         # dataset_access=True with a missing DataFrame must return 404.

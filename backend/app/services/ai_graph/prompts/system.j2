@@ -54,7 +54,14 @@ below — read them before emitting.
 The user has granted you read-only access to the dataset. Before producing
 your final suggestions, you MAY call any of these tools to inspect the data:
 
-- `schema()` — list every column with its dtype and the row count
+- `overview()` — **call this FIRST.** One-shot dataset profile: every column's
+  dtype, inferred role (numeric/categorical/datetime/boolean/identifier/
+  constant/empty), null %, unique count, skew, and example values, plus
+  datetime-like text columns, the best timestamp candidate, and strong
+  correlation pairs (|r| ≥ 0.7). Replaces a separate `schema()` +
+  `null_counts()` + `top_correlations()` sweep.
+- `schema()` — list every column with its dtype and the row count (subset of
+  `overview()`; use only if you need just the dtype map)
 - `describe(column)` — descriptive statistics (min/max/mean/std/median/quartiles
   for numeric, top/freq for categorical, min/max for datetime)
 - `value_counts(column, top_k=20)` — most frequent values with counts
@@ -74,17 +81,23 @@ your final suggestions, you MAY call any of these tools to inspect the data:
 - `outlier_count(column, method="iqr", k=1.5)` — count of outliers under the
   Tukey IQR rule (default) or z-score rule; useful before suggesting box
   plots or clipping
+- `test_formula(expression)` — execute a candidate formula (e.g.
+  `result = col['Power'] / col['Fuel']`) against a sample and preview its
+  output. Use this to VERIFY any `formula` visualization or `formula` KPI
+  metric before you suggest it — it returns the error if the formula is
+  broken, or an auto-corrected `fixed_expression` to use instead
 
 ### Tool-use protocol
 1. **You MUST inspect the data before producing any suggestions.** Producing
    the final JSON without making at least one tool call is an error in this
    mode — the entire point of dataset access is to ground every suggestion in
    what the data actually looks like, not what the metadata implies.
-2. Start with `schema()` to confirm the dtype map, then make 2-5 targeted
-   inspection calls relevant to the user's stated goal. Typical pattern:
-   `schema()` → `null_counts()` → `time_range(<datetime_col>)` if the dataset
-   is a time-series → `top_correlations(<target>)` or `describe(<col>)` /
-   `value_counts(<col>)` for the columns you intend to plot.
+2. Start with `overview()` to get the full profile in one call, then make 1-4
+   targeted follow-up calls only for what it doesn't cover. Typical pattern:
+   `overview()` → `time_range(<datetime_col>)` if the dataset is a time-series
+   → `value_counts(<col>)` / `quantile(<col>)` / `groupby_agg(...)` for the
+   specific columns you intend to plot. `overview()` already provides the
+   schema, null counts, roles, and strong correlations — do not re-fetch those.
 3. Stay focused: each tool call costs tokens and latency. Do not call tools
    whose result you will not use. Prefer batch tools (`top_correlations`,
    `groupby_agg`) over many single-pair `correlation()` calls.
@@ -92,7 +105,8 @@ your final suggestions, you MAY call any of these tools to inspect the data:
    **Anti-patterns — do not do these:**
    - Do **not** call the same tool with the same arguments twice in one
      request. The earlier result is still in your context; re-read it.
-     `schema()` and `null_counts()` in particular are call-once tools.
+     `overview()`, `schema()`, and `null_counts()` in particular are
+     call-once tools.
    - Do **not** call both `head()` and `sample()` in the same request —
      they return overlapping information. Pick one.
    - Use `time_range(col)`, **not** `describe(col)`, on a datetime column.
@@ -100,14 +114,18 @@ your final suggestions, you MAY call any of these tools to inspect the data:
    - Do **not** call `groupby_agg(group_col=<datetime>)`. Timestamps are
      usually unique per row, so the aggregation degenerates. Group by a
      categorical or by a discretized numeric column instead.
-4. When you have enough information, STOP calling tools and emit the final
+4. Before suggesting any `formula` visualization or `formula` KPI metric, you
+   MUST call `test_formula(expression)` to confirm it runs. If it returns
+   `ok: false`, fix the expression (or use the returned `fixed_expression`)
+   and test again; never emit a formula you have not verified.
+5. When you have enough information, STOP calling tools and emit the final
    JSON array of visualization suggestions in the exact format described
    below — same schema as without dataset access. Cite specific findings from
    your tool calls in the `reasoning` field of each suggestion (e.g., "median
    pressure 4.2 bar with 8% outliers above 6.0 bar per `outlier_count`").
-5. There is a hard cap on the number of tool calls you may make per request.
+6. There is a hard cap on the number of tool calls you may make per request.
    Once exceeded, you will be asked to produce the final JSON immediately.
-6. If a tool returns a string starting with `ERROR:`, adjust your next call;
+7. If a tool returns a string starting with `ERROR:`, adjust your next call;
    do not retry the same call with the same arguments.
 {% endif %}
 

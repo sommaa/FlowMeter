@@ -145,6 +145,7 @@ def initialize_state(
     dataframe: Optional[Any] = None,
     max_tool_iterations: Optional[int] = None,
     idle_timeout_s: Optional[float] = None,
+    dataset_profile: str = "",
 ) -> SuggestionGraphState:
     """
     Initialize the graph state with input data.
@@ -175,6 +176,7 @@ def initialize_state(
     return SuggestionGraphState(
         columns=columns,
         guidance_text=guidance_text,
+        dataset_profile=dataset_profile,
         available_viz_types=available_viz_types or list(ALL_VIZ_TYPES),
         existing_visualizations=existing_visualizations or [],
         max_suggestions=max_suggestions,
@@ -249,9 +251,10 @@ async def generate_suggestions_node(state: SuggestionGraphState) -> dict:
             guidance_text=state['guidance_text'],
             available_viz_types=state['available_viz_types'],
             existing_visualizations=state['existing_visualizations'],
-            max_suggestions=state['max_suggestions']
+            max_suggestions=state['max_suggestions'],
+            dataset_profile=state.get('dataset_profile', ''),
         )
-        
+
         # Log prompts at VERBOSE level
         debug.log_prompt("SYSTEM", system_prompt)
         debug.log_prompt("USER", user_prompt, max_chars=1000)
@@ -1328,6 +1331,7 @@ async def run_suggestion_workflow(
     dataframe: Optional[Any] = None,
     max_tool_iterations: Optional[int] = None,
     idle_timeout_s: Optional[float] = None,
+    dataset_profile: str = "",
 ) -> tuple[list[VisualizationSuggestion], list[str]]:
     """
     Run the complete suggestion workflow.
@@ -1373,6 +1377,7 @@ async def run_suggestion_workflow(
         dataframe=dataframe,
         max_tool_iterations=max_tool_iterations,
         idle_timeout_s=idle_timeout_s,
+        dataset_profile=dataset_profile,
     )
     # Log workflow start
     debug.workflow_start(provider, model or 'default', guidance_text, len(columns))

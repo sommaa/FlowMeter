@@ -45,6 +45,76 @@ def _payload(tool, **kwargs):
     return json.loads(raw)
 
 
+class TestOverview:
+    def test_returns_profile_with_expected_keys(self, tools):
+        out = _payload(tools["overview"])
+        assert out["rows"] == 6
+        assert out["columns"] == 4
+        names = {c["name"] for c in out["column_profiles"]}
+        assert names == {"temp", "cat", "ts", "ratio"}
+        # The datetime column is surfaced as the suggested time index.
+        assert out["suggested_time_index"] == "ts"
+
+    def test_output_is_strict_json(self, tools):
+        # NaN in `temp` must serialize as null, not a bare NaN token.
+        raw = tools["overview"].invoke({})
+        assert "NaN" not in raw
+
+
+class TestTestFormula:
+    def test_single_result_ok(self, tools):
+        out = _payload(tools["test_formula"], expression="result = col['temp'] * 2")
+        assert out["ok"] is True
+        assert out["n_rows_tested"] == 6
+        assert len(out["results"]) == 1
+        r = out["results"][0]
+        assert r["name"] == "result"
+        # temp = [10,20,30,40,NaN,50] * 2 -> first value 20
+        assert r["preview"][0] == 20.0
+        # one NaN out of six rows
+        assert r["null_pct"] == round(1 / 6 * 100, 1)
+
+    def test_multiple_results(self, tools):
+        out = _payload(
+            tools["test_formula"],
+            expression="result1 = col['temp'] + 1\nresult2 = col['ratio'] * 10",
+        )
+        assert out["ok"] is True
+        names = {r["name"] for r in out["results"]}
+        assert names == {"result1", "result2"}
+
+    def test_missing_column_reports_error(self, tools):
+        out = _payload(tools["test_formula"], expression="result = col['nope'] * 2")
+        assert out["ok"] is False
+        assert "error" in out
+
+    def test_unsafe_code_rejected(self, tools):
+        out = _payload(tools["test_formula"], expression="result = __import__('os').listdir('.')")
+        assert out["ok"] is False
+        assert "error" in out
+
+    def test_auto_fix_caret_power(self, tools):
+        # `^` should be auto-corrected to `**`; the corrected form is surfaced.
+        out = _payload(tools["test_formula"], expression="result = col['ratio'] ^ 2")
+        assert out["ok"] is True
+        assert "fixed_expression" in out
+        assert "**" in out["fixed_expression"]
+
+    def test_auto_fix_missing_result_assignment(self, tools):
+        # A bare expression gets a `result =` prepended and still runs.
+        out = _payload(tools["test_formula"], expression="col['ratio'] * 3")
+        assert out["ok"] is True
+        assert "fixed_expression" in out
+
+    def test_empty_expression(self, tools):
+        out = _payload(tools["test_formula"], expression="   ")
+        assert out["ok"] is False
+
+    def test_output_is_strict_json(self, tools):
+        raw = tools["test_formula"].invoke({"expression": "result = col['temp'] * 2"})
+        assert "NaN" not in raw
+
+
 class TestSchema:
     def test_returns_dtypes_and_row_count(self, tools, df):
         out = _payload(tools["schema"])
@@ -179,6 +249,8 @@ def test_build_dataset_tools_returns_full_toolset(df):
     tools = build_dataset_tools(df)
     names = {t.name for t in tools}
     assert names == {
+        # One-shot profile
+        "overview",
         # Inspection
         "schema",
         "describe",
@@ -193,6 +265,8 @@ def test_build_dataset_tools_returns_full_toolset(df):
         "time_range",
         "quantile",
         "outlier_count",
+        # Closed-loop verification
+        "test_formula",
     }
 
 

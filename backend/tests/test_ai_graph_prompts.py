@@ -80,10 +80,14 @@ class TestPromptRenderingByteIdentical:
         # datetime, and groupby_agg on a timestamp column — pinned after
         # observing Gemini Flash burn through 6 tool calls in iter 1
         # repeating these mistakes. Updated again with the "Output Shape"
-        # JSON example anchor (see test above).
+        # JSON example anchor (see test above). Re-pinned after adding the
+        # one-shot `overview()` tool (recommended first call) to the tool
+        # list and the tool-use protocol. Re-pinned again after adding the
+        # `test_formula()` verification tool and the protocol step requiring
+        # every formula suggestion to be tested before emission.
         out = get_system_prompt(reasoning_max_chars=800, dataset_access=True)
-        assert len(out) == 18054
-        assert self._sha(out) == "50842e8be1787ebf"
+        assert len(out) == 19296
+        assert self._sha(out) == "ab806892b5a5c833"
 
     def test_user_prompt_byte_identical(self):
         # Re-pinned after restructuring the field list into a "Required

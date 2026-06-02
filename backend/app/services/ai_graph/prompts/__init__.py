@@ -67,6 +67,7 @@ def get_user_prompt(
     existing_visualizations: list[str],
     max_suggestions: int = 5,
     reasoning_max_chars: int = 800,
+    dataset_profile: str = "",
 ) -> str:
     """Build the user prompt containing dataset context and analysis goals.
 
@@ -80,6 +81,10 @@ def get_user_prompt(
         available_viz_types: List of visualization types the system supports.
         existing_visualizations: Titles of charts already created.
         max_suggestions: Maximum number of suggestions to request.
+        dataset_profile: Pre-rendered markdown profile block (from
+            ``profile.format_profile_for_prompt``) that grounds the AI in the
+            actual data. Empty string omits the section — used on the agent
+            path, which fetches the same profile via the ``overview()`` tool.
 
     Returns:
         The formatted user prompt string.
@@ -112,6 +117,12 @@ def get_user_prompt(
     if existing_visualizations:
         existing_text = "\n\n## Already Created (avoid duplicating):\n- " + "\n- ".join(existing_visualizations)
 
+    # Spacing is controlled here (not via a Jinja {% if %}) so that an empty
+    # profile renders byte-identically to the pre-profile prompt — the block
+    # is inserted inline right after the datetime hint with its own blank-line
+    # padding only when present.
+    dataset_profile_block = f"\n\n{dataset_profile}" if dataset_profile else ""
+
     return _env.get_template("user.j2").render(
         columns_text=columns_text,
         datetime_hint=datetime_hint,
@@ -120,6 +131,7 @@ def get_user_prompt(
         max_suggestions=max_suggestions,
         viz_types=", ".join(available_viz_types),
         reasoning_max_chars=reasoning_max_chars,
+        dataset_profile_block=dataset_profile_block,
     )
 
 

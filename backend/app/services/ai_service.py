@@ -222,6 +222,15 @@ class AIRequest(BaseModel):
             "picked from effort + tool binding."
         ),
     )
+    dataset_profile: str = Field(
+        default="",
+        description=(
+            "Pre-rendered markdown dataset profile injected into the prompt on "
+            "the metadata-only path. Built by the API layer from the live "
+            "DataFrame; empty on the dataset_access path (the agent fetches the "
+            "same profile via the overview() tool)."
+        ),
+    )
 
 
 class AIVisualizationService:
@@ -350,6 +359,7 @@ class AIVisualizationService:
                 dataframe=request.dataframe,
                 max_tool_iterations=request.max_tool_iterations,
                 idle_timeout_s=request.idle_timeout_s,
+                dataset_profile=request.dataset_profile,
             )
             
             _debug_log("Service: Workflow completed", min_level=1)

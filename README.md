@@ -511,13 +511,16 @@ FlowMeter integrates AI through a **LangGraph workflow** with structured output 
 Models are **fetched dynamically** from each provider's API when you enter your API key — no hardcoded lists. You always see the latest models available to your account.
 
 **AI capabilities:**
-- **Visualization Suggestions** — Describe your data in plain English; AI recommends chart configurations applied immediately
+- **Visualization Suggestions** — Describe your data in plain English; AI proposes chart configurations you review and apply with one click (per suggestion or **Apply All**)
 - **Formula Generation** — Describe a calculation; AI writes the Python formula code (integrated in the Formula Editor)
 - **Dynamic Model Discovery** — Available models fetched in real-time from provider APIs, so new models appear automatically
 - **Reasoning Effort Control** — Adjust AI thinking depth (Low / Medium / High) to balance speed vs. quality; maps to provider-specific features (Anthropic extended thinking, OpenAI reasoning effort, Gemini thinking budget)
 - **Structured Output** — AI responses validated against Pydantic schemas with automatic retry and self-correction
-- **Column Validation** — AI-suggested column names cross-checked against your actual dataset
+- **Column Validation** — AI-suggested column names cross-checked against your actual dataset, with fuzzy-match correction hints
 - **Context-Aware** — AI receives your column names, data types, sample statistics, and any guidance text you provide
+- **Dataset Profile (always on)** — A server-computed profile grounds every suggestion in the real data: per-column role (numeric / categorical / datetime / boolean / identifier / constant), null %, cardinality, skew, example values, datetime-like text columns, the best timestamp candidate, and strong correlation pairs (|r| ≥ 0.7). Sent as aggregates (plus a few example values) — no full rows
+- **Dataset Access (Agentic Tools)** — *Optional.* Let the AI issue read-only tool calls against the loaded dataset — starting with a one-shot `overview()` profile, then drilling in with sample rows, value counts, correlations, group-by aggregates, quantiles, outlier counts, and more — so it grounds suggestions in the live data rather than metadata alone. **Off by default**; the agent-loop iteration cap is configurable in AI Settings
+- **Formula Verification (closed-loop)** — In dataset-access mode the AI can `test_formula` a candidate expression — executing it on a sample to confirm it runs and preview its output (with auto-correction for `^`→`**`, a missing `result =`, or fuzzy-matched column names) — *before* proposing a formula chart or formula KPI, so suggested formulas are verified rather than guessed
 
 > [!IMPORTANT]
 > AI features are **optional** and require your own API key from the chosen provider. FlowMeter works fully without AI. All API calls go directly from your machine to the AI provider — FlowMeter has no telemetry, no intermediary servers, and no data collection.
@@ -1135,7 +1138,8 @@ flowmeter/
 │   │   │       ├── formula_generator.py          # Natural language → formula
 │   │   │       ├── formula_validator.py          # Formula code validation
 │   │   │       ├── validators.py                 # Output schema validators
-│   │   │       ├── prompts.py                    # LLM prompt templates
+│   │   │       ├── tools.py                       # LLM tool definitions and bindings
+│   │   │       ├── prompts/                       # LLM prompt templates
 │   │   │       └── schemas.py                    # Graph I/O Pydantic models
 │   │   ├── models/schemas.py               # All Pydantic schemas (50+ models)
 │   │   ├── core/
@@ -1219,19 +1223,21 @@ All endpoints are prefixed with `/api/v1/`. Interactive documentation available 
 | `POST` | `/reconcile/reconcile` | Run constrained optimization reconciliation |
 | `GET` | `/reconcile/download/{filename}` | Download reconciled data as Excel file (`.xlsx`) |
 
-#### Export — 1 endpoint
+#### Export — 2 endpoints
 
 | Method | Endpoint | Description |
 |:-------|:---------|:------------|
 | `POST` | `/export/dashboard` | Generate self-contained HTML report with embedded charts |
+| `POST` | `/export/data` | Export selected column categories (original, reconciled, global variables, formula results) to an Excel file |
 
-#### AI — 5 endpoints
+#### AI — 6 endpoints
 
 | Method | Endpoint | Description |
 |:-------|:---------|:------------|
 | `GET` | `/ai/providers` | List available AI providers |
 | `POST` | `/ai/providers/{provider}/models` | Fetch available models from a provider's API using user's key |
 | `POST` | `/ai/suggest` | Get AI-powered visualization suggestions from natural language |
+| `GET` | `/ai/metrics` | Recent AI suggestion metrics (latency, tokens, cost) with aggregate statistics — no prompt text captured |
 | `POST` | `/ai/apply-suggestions` | Convert AI suggestions to `VisualizationConfig` objects |
 | `POST` | `/ai/generate-formula` | Generate Python formula code from natural language |
 
@@ -1250,7 +1256,7 @@ All endpoints are prefixed with `/api/v1/`. Interactive documentation available 
 | `GET` | `/health` | Health check (status + version) |
 | `GET` | `/api/info` | API name, version, and documentation URLs |
 
-> **Total: 32 endpoints across 8 route groups**
+> **Total: 34 endpoints across 8 route groups**
 
 </details>
 
@@ -1261,7 +1267,7 @@ All endpoints are prefixed with `/api/v1/`. Interactive documentation available 
 
 #### Backend (Pytest)
 
-**44 test files | 655 passing tests**
+**49 test files | 977 passing tests**
 
 ```bash
 # Run from the repository root directory:
@@ -1304,10 +1310,14 @@ backend/venv/bin/python -m pytest --rootdir=backend -q
 | `test_ai_fetch_models.py` | Dynamic model fetching from provider APIs |
 | `test_ai_service.py` | AI orchestration service |
 | `test_ai_graph.py` | LangGraph workflow integration |
-| `test_ai_graph_providers.py` | Provider factory and model catalog |
+| `test_ai_graph_providers.py` | Provider factory, reasoning-effort/thinking-budget mapping, timeouts |
 | `test_ai_graph_prompts.py` | LLM prompt templates |
 | `test_ai_graph_validators.py` | AI output validators and correction logic |
 | `test_ai_graph_schemas.py` | AI workflow Pydantic schemas |
+| `test_ai_graph_tools.py` | AI graph tool definitions and bindings |
+| `test_ai_profile.py` | Dataset profile: roles, null/cardinality/skew, datetime candidates, correlations, prompt rendering |
+| `test_ai_metrics.py` | AI metrics collection, aggregation, and cost computation |
+| `test_logging_filters.py` | Logging filters and redaction |
 | `test_formula_generator.py` | Natural language → formula generation |
 | `test_formula_validator.py` | Formula code safety validation |
 | `test_main.py` | FastAPI app startup, health check, middleware |
@@ -1318,7 +1328,7 @@ backend/venv/bin/python -m pytest --rootdir=backend -q
 
 #### Frontend (Vitest + React Testing Library)
 
-**61 test files | 779 passing tests**
+**62 test files | 824 passing tests**
 
 ```bash
 # Run from the repository root directory:

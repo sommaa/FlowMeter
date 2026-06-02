@@ -23,8 +23,12 @@ import logging
 import math
 from typing import Any
 
+import numpy as np
 import pandas as pd
 from langchain_core.tools import BaseTool, tool
+
+from .formula_validator import validate_formula
+from .profile import build_dataset_profile
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +42,12 @@ _MAX_HEAD_N = 10
 _MAX_VALUE_COUNTS_TOP_K = 50
 _MAX_GROUPBY_TOP_K = 50
 _MAX_TOP_CORRELATIONS_K = 20
+
+# Rows a candidate formula is evaluated against in test_formula(), and how many
+# output values to preview back to the model. A bounded sample keeps the smoke
+# test fast; rolling/shift windows are therefore truncated.
+_FORMULA_SAMPLE_ROWS = 200
+_FORMULA_PREVIEW_VALUES = 5
 
 # Aggregation operations exposed to the agent. Mirrors the KPI operation set
 # minus "first/last/formula" (which only make sense on a single Series, not a
@@ -131,11 +141,33 @@ def build_dataset_tools(df: pd.DataFrame) -> list[BaseTool]:
     """
 
     @tool
+    def overview() -> str:
+        """Return a one-shot profile of the whole dataset — call this FIRST.
+
+        Collapses what would otherwise be several separate calls (schema,
+        null_counts, top_correlations, per-column describe) into a single
+        compact result so you can plan suggestions without probing column by
+        column. Includes, for every column: dtype, an inferred role
+        (numeric/categorical/datetime/boolean/identifier/constant/empty),
+        null percentage, unique count, skew (numeric), and a few example
+        values — plus datetime-like text columns, the best timestamp
+        candidate, and strong correlation pairs (|r| >= 0.7).
+
+        After this, only call the other tools for details it doesn't cover
+        (specific quantiles, value_counts, group-by aggregates, outliers).
+        """
+        try:
+            return _safe_json(build_dataset_profile(df))
+        except Exception as exc:  # pragma: no cover - defensive
+            return f"ERROR: overview() failed: {exc}"
+
+    @tool
     def schema() -> str:
         """Return the dataset schema as a JSON object mapping column names to dtypes.
 
-        Use this first to understand what columns and types are available before
-        calling other tools.
+        Prefer ``overview()`` first — it returns this schema plus roles, null
+        counts, and correlations in one call. Use ``schema()`` only when you
+        need just the raw dtype map.
         """
         try:
             cols = {col: str(df[col].dtype) for col in df.columns}
@@ -514,7 +546,135 @@ def build_dataset_tools(df: pd.DataFrame) -> list[BaseTool]:
         except Exception as exc:
             return f"ERROR: outlier_count('{column}', method='{method}') failed: {exc}"
 
+    @tool
+    def test_formula(expression: str) -> str:
+        """Execute a candidate custom-formula expression to verify it runs and
+        preview its output BEFORE suggesting a `formula` visualization or a
+        `formula` KPI metric.
+
+        The expression must assign to ``result`` (or ``result1``, ``result2``,
+        … for several outputs), e.g. ``result = col['Power'] / col['Fuel']``.
+        Reference columns with ``col['Exact_Name']``; ``np`` and ``pd`` are
+        available. Imports, ``eval``/``exec``, file access, and other unsafe
+        calls are rejected.
+
+        Runs on the first 200 rows for speed, so rolling/shift windows are
+        truncated — this is a smoke test, not the final render.
+
+        Returns JSON:
+            - ``ok``: did the formula run and produce at least one result?
+            - ``error``: failure reason when ``ok`` is false (column typo, bad
+              syntax, division/type error, unsafe call)
+            - ``fixed_expression``: present when the validator auto-corrected
+              the input (``^``→``**``, a missing ``result =``, or a
+              fuzzy-matched column name) — use this corrected form in your
+              suggestion
+            - ``results``: per output variable — ``name``, ``dtype``,
+              ``null_pct``, ``length``, and the first few ``preview`` values
+            - ``n_rows_tested``: rows the formula was evaluated against
+
+        Verify every formula here first — a suggestion whose formula errors in
+        this tool will fail validation downstream.
+
+        Args:
+            expression: The formula code to execute.
+        """
+        if not expression or not expression.strip():
+            return _safe_json({"ok": False, "error": "expression is empty"})
+
+        # Columns the formula may reference: the real columns plus the
+        # synthetic 'Index' / index-name columns generate_formula_data injects.
+        valid_columns = {str(c) for c in df.columns}
+        valid_columns.add("Index")
+        if df.index.name:
+            valid_columns.add(str(df.index.name))
+
+        # Safety + syntax + column gate — the same validator the post-hoc
+        # pipeline uses. auto_fix surfaces a corrected form for `^`, implicit
+        # multiplication, a missing `result =`, and fuzzy-matched columns.
+        try:
+            verdict, fixed = validate_formula(expression, valid_columns, auto_fix=True)
+        except Exception as exc:  # pragma: no cover - defensive
+            return f"ERROR: test_formula validation failed: {exc}"
+
+        fixed_changed = fixed.strip() != expression.strip()
+        fix_field = {"fixed_expression": fixed} if fixed_changed else {}
+
+        if not verdict.is_valid:
+            errs = "; ".join(
+                f"{e.field}: {e.error}" + (f" ({e.suggestion})" if e.suggestion else "")
+                for e in verdict.errors
+            )
+            return _safe_json({"ok": False, "error": errs or "formula failed validation", **fix_field})
+
+        # Execute the (possibly auto-fixed) expression on a bounded sample,
+        # mirroring generate_formula_data's preprocessing so behavior matches
+        # the real formula visualization. exec is gated by validate_formula
+        # above (no imports/eval/exec/file access; whitelisted functions only).
+        try:
+            work = df.head(_FORMULA_SAMPLE_ROWS).copy()
+            for c in work.columns:
+                if work[c].dtype == "object":
+                    try:
+                        work[c] = pd.to_numeric(work[c], errors="coerce")
+                    except Exception:
+                        pass
+            if work.index.name:
+                work[work.index.name] = work.index
+            work["Index"] = work.index
+
+            namespace: dict[str, Any] = {"col": work, "np": np, "pd": pd}
+            exec(fixed, namespace)  # noqa: S102 - gated by validate_formula
+        except KeyError as exc:
+            return _safe_json({"ok": False, "error": f"column not found: {exc}", **fix_field})
+        except Exception as exc:
+            return _safe_json({"ok": False, "error": f"execution error: {exc}", **fix_field})
+
+        # Collect result / result1.. / result2.. outputs.
+        outputs: dict[str, Any] = {}
+        idx = 1
+        while f"result{idx}" in namespace:
+            outputs[f"result{idx}"] = namespace[f"result{idx}"]
+            idx += 1
+        if "result" in namespace:
+            outputs["result"] = namespace["result"]
+
+        if not outputs:
+            return _safe_json({
+                "ok": False,
+                "error": "no result defined — assign to 'result' or 'result1', 'result2', …",
+                **fix_field,
+            })
+
+        summaries = []
+        for name, val in outputs.items():
+            if isinstance(val, (pd.Series, np.ndarray, list)):
+                s = pd.Series(val)
+                summaries.append({
+                    "name": name,
+                    "dtype": str(s.dtype),
+                    "null_pct": round(float(s.isna().mean()) * 100, 1) if len(s) else 0.0,
+                    "length": int(len(s)),
+                    "preview": [_clean_scalar(v) for v in s.head(_FORMULA_PREVIEW_VALUES).tolist()],
+                })
+            else:
+                summaries.append({
+                    "name": name,
+                    "dtype": "scalar",
+                    "null_pct": 0.0,
+                    "length": 1,
+                    "preview": [_clean_scalar(val)],
+                })
+
+        return _safe_json({
+            "ok": True,
+            "n_rows_tested": int(len(work)),
+            "results": summaries,
+            **fix_field,
+        })
+
     return [
+        overview,
         schema,
         describe,
         value_counts,
@@ -527,4 +687,5 @@ def build_dataset_tools(df: pd.DataFrame) -> list[BaseTool]:
         time_range,
         quantile,
         outlier_count,
+        test_formula,
     ]

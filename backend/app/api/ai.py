@@ -30,6 +30,10 @@ from app.services.ai_graph import (
     ERROR_CLASS_TO_HTTP,
 )
 from app.services.ai_graph.providers import SUPPORTED_PROVIDERS
+from app.services.ai_graph.profile import (
+    build_dataset_profile,
+    format_profile_for_prompt,
+)
 from app.services.ai_metrics import (
     ai_request_id,
     build_aggregates,
@@ -422,6 +426,27 @@ async def suggest_visualizations(request: SuggestRequest):
                 detail="Dataset not found in memory; cannot enable dataset access",
             )
 
+    # Ground the metadata-only path with a server-computed profile (column
+    # roles, null %, cardinality, examples, datetime candidates, strong
+    # correlations) so the AI sees the real data shape without spending tool
+    # round-trips. On the dataset_access path the agent fetches the same
+    # profile via the overview() tool, so skip it here. Profiling must never
+    # block a suggestion — on any failure we fall back to an empty profile.
+    dataset_profile_text = ""
+    if not request.dataset_access:
+        profile_df = data_service.get_dataset(request.dataset_id)
+        if profile_df is not None:
+            try:
+                dataset_profile_text = format_profile_for_prompt(
+                    build_dataset_profile(profile_df)
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to build dataset profile for %s",
+                    request.dataset_id,
+                    exc_info=True,
+                )
+
     try:
         # Build AI request — `available_viz_types` defaults to every VizType
         # via AIRequest's default_factory, which derives from the schema.
@@ -436,6 +461,7 @@ async def suggest_visualizations(request: SuggestRequest):
             dataframe=dataframe,
             max_tool_iterations=request.max_tool_iterations,
             idle_timeout_s=request.idle_timeout_s,
+            dataset_profile=dataset_profile_text,
         )
 
         # Get suggestions
