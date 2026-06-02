@@ -86,6 +86,16 @@ your final suggestions, you MAY call any of these tools to inspect the data:
   output. Use this to VERIFY any `formula` visualization or `formula` KPI
   metric before you suggest it — it returns the error if the formula is
   broken, or an auto-corrected `fixed_expression` to use instead
+- `detect_periodicity(column)` — FFT dominant cycle of a signal (period in
+  samples + how much spectral power it carries). Use before suggesting an
+  `fft` visualization: `clear_peak=true` means a real cycle worth plotting
+- `rank_drivers(target, candidates=None, methods=None)` — rank which variables
+  most likely drive a target (Pearson / lagged cross-correlation / mutual info
+  / Granger), same engine as the Root Cause view. Use before suggesting a
+  `root_cause` visualization, or to pick predictors for `regression`
+- `quick_fit(y_column, x_columns)` — fit `y ~ x…` and report R² + coefficients.
+  Use before suggesting a `regression` visualization: a high R² means the fit
+  is informative
 
 ### Tool-use protocol
 1. **You MUST inspect the data before producing any suggestions.** Producing

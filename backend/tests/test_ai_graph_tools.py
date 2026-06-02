@@ -115,6 +115,82 @@ class TestTestFormula:
         assert "NaN" not in raw
 
 
+@pytest.fixture
+def analysis_tools():
+    """Tools bound to a 120-row frame with a clean cycle, a constant column, a
+    perfect linear pair, and a lead/lag driver — for the analysis-engine tools."""
+    n = 120
+    t = np.arange(n)
+    df = pd.DataFrame({
+        "sig": np.sin(2 * np.pi * t / 12),                              # period 12
+        "flat": np.ones(n),                                            # constant
+        "a": t * 1.0,
+        "b": t * 2.0 + 3.0,                                            # b = 2a + 3
+        "lead": np.sin(2 * np.pi * t / 12),
+        "target": np.r_[np.zeros(2), np.sin(2 * np.pi * t[:-2] / 12)],  # lead leads by 2
+    })
+    return {x.name: x for x in build_dataset_tools(df)}
+
+
+class TestDetectPeriodicity:
+    def test_finds_dominant_period(self, analysis_tools):
+        out = _payload(analysis_tools["detect_periodicity"], column="sig")
+        assert out["clear_peak"] is True
+        assert abs(out["dominant_period_samples"] - 12) <= 2
+
+    def test_flat_signal_no_clear_peak(self, analysis_tools):
+        out = _payload(analysis_tools["detect_periodicity"], column="flat")
+        assert out["clear_peak"] is False
+
+    def test_too_few_samples(self, tools):
+        # The shared 6-row fixture is below the FFT minimum.
+        out = _payload(tools["detect_periodicity"], column="temp")
+        assert out["clear_peak"] is False
+        assert "note" in out
+
+    def test_non_numeric_errors(self, tools):
+        raw = tools["detect_periodicity"].invoke({"column": "cat"})
+        assert raw.startswith("ERROR")
+
+
+class TestQuickFit:
+    def test_perfect_linear_fit(self, analysis_tools):
+        out = _payload(analysis_tools["quick_fit"], y_column="b", x_columns=["a"])
+        assert out["r2"] == 1.0
+        assert abs(out["coefficients"]["a"] - 2.0) < 1e-6
+        assert abs(out["intercept"] - 3.0) < 1e-6
+
+    def test_missing_predictor_errors(self, analysis_tools):
+        raw = analysis_tools["quick_fit"].invoke({"y_column": "b", "x_columns": ["nope"]})
+        assert raw.startswith("ERROR")
+
+    def test_empty_predictors_errors(self, analysis_tools):
+        raw = analysis_tools["quick_fit"].invoke({"y_column": "b", "x_columns": []})
+        assert raw.startswith("ERROR")
+
+
+class TestRankDrivers:
+    def test_ranks_leader_first(self, analysis_tools):
+        out = _payload(
+            analysis_tools["rank_drivers"],
+            target="target",
+            methods=["pearson", "cross_corr"],
+        )
+        assert out["target"] == "target"
+        assert len(out["drivers"]) >= 1
+        top = out["drivers"][0]
+        assert top["variable"] in {"lead", "sig"}
+        assert top["is_leader"] is True
+
+    def test_missing_target_errors(self, analysis_tools):
+        raw = analysis_tools["rank_drivers"].invoke({"target": "nope"})
+        assert raw.startswith("ERROR")
+
+    def test_non_numeric_target_errors(self, tools):
+        raw = tools["rank_drivers"].invoke({"target": "cat"})
+        assert raw.startswith("ERROR")
+
+
 class TestSchema:
     def test_returns_dtypes_and_row_count(self, tools, df):
         out = _payload(tools["schema"])
@@ -267,6 +343,10 @@ def test_build_dataset_tools_returns_full_toolset(df):
         "outlier_count",
         # Closed-loop verification
         "test_formula",
+        # Analysis engines
+        "detect_periodicity",
+        "rank_drivers",
+        "quick_fit",
     }
 
 

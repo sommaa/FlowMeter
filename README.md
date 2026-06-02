@@ -521,6 +521,7 @@ Models are **fetched dynamically** from each provider's API when you enter your 
 - **Dataset Profile (always on)** — A server-computed profile grounds every suggestion in the real data: per-column role (numeric / categorical / datetime / boolean / identifier / constant), null %, cardinality, skew, example values, datetime-like text columns, the best timestamp candidate, and strong correlation pairs (|r| ≥ 0.7). Sent as aggregates (plus a few example values) — no full rows
 - **Dataset Access (Agentic Tools)** — *Optional.* Let the AI issue read-only tool calls against the loaded dataset — starting with a one-shot `overview()` profile, then drilling in with sample rows, value counts, correlations, group-by aggregates, quantiles, outlier counts, and more — so it grounds suggestions in the live data rather than metadata alone. **Off by default**; the agent-loop iteration cap is configurable in AI Settings
 - **Formula Verification (closed-loop)** — In dataset-access mode the AI can `test_formula` a candidate expression — executing it on a sample to confirm it runs and preview its output (with auto-correction for `^`→`**`, a missing `result =`, or fuzzy-matched column names) — *before* proposing a formula chart or formula KPI, so suggested formulas are verified rather than guessed
+- **Analysis-Engine Tools** — In dataset-access mode the AI can run the app's own analytics to ground advanced chart suggestions in evidence: `detect_periodicity` (FFT dominant cycle → FFT view), `rank_drivers` (Pearson / lagged cross-correlation / mutual info / Granger → Root Cause view), and `quick_fit` (linear R² + coefficients → Regression view)
 
 > [!IMPORTANT]
 > AI features are **optional** and require your own API key from the chosen provider. FlowMeter works fully without AI. All API calls go directly from your machine to the AI provider — FlowMeter has no telemetry, no intermediary servers, and no data collection.
@@ -1267,7 +1268,7 @@ All endpoints are prefixed with `/api/v1/`. Interactive documentation available 
 
 #### Backend (Pytest)
 
-**49 test files | 977 passing tests**
+**49 test files | 987 passing tests**
 
 ```bash
 # Run from the repository root directory:

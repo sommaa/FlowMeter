@@ -84,10 +84,12 @@ class TestPromptRenderingByteIdentical:
         # one-shot `overview()` tool (recommended first call) to the tool
         # list and the tool-use protocol. Re-pinned again after adding the
         # `test_formula()` verification tool and the protocol step requiring
-        # every formula suggestion to be tested before emission.
+        # every formula suggestion to be tested before emission, then again
+        # after adding the analysis-engine tools (`detect_periodicity`,
+        # `rank_drivers`, `quick_fit`).
         out = get_system_prompt(reasoning_max_chars=800, dataset_access=True)
-        assert len(out) == 19296
-        assert self._sha(out) == "ab806892b5a5c833"
+        assert len(out) == 19996
+        assert self._sha(out) == "5e309fc98e45e733"
 
     def test_user_prompt_byte_identical(self):
         # Re-pinned after restructuring the field list into a "Required

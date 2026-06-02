@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import math
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -48,6 +48,12 @@ _MAX_TOP_CORRELATIONS_K = 20
 # test fast; rolling/shift windows are therefore truncated.
 _FORMULA_SAMPLE_ROWS = 200
 _FORMULA_PREVIEW_VALUES = 5
+
+# Analysis-engine tool bounds.
+_MIN_FFT_SAMPLES = 16          # below this, an FFT peak isn't meaningful
+_FFT_PEAK_REL = 0.10           # peak must carry this fraction of (non-DC) power to count
+_MAX_DRIVERS = 10              # top-N rows returned by rank_drivers
+_QUICK_FIT_MAX_ROWS = 20_000   # rows sampled before fitting a quick linear model
 
 # Aggregation operations exposed to the agent. Mirrors the KPI operation set
 # minus "first/last/formula" (which only make sense on a single Series, not a
@@ -673,6 +679,180 @@ def build_dataset_tools(df: pd.DataFrame) -> list[BaseTool]:
             **fix_field,
         })
 
+    @tool
+    def detect_periodicity(column: str) -> str:
+        """Find the dominant cycle in a numeric signal via FFT — evidence for
+        whether an `fft` visualization is worthwhile.
+
+        Linearly detrends and Hann-windows the column, then takes its power
+        spectrum and reports the strongest non-DC component. The period is in
+        SAMPLES (rows); multiply by the sampling cadence from `time_range` to
+        get a real-world period. ``relative_power`` is the fraction of spectral
+        power in that peak — a high value (``clear_peak``) means a real cycle,
+        a low value means broadband noise with no clean periodicity.
+
+        Args:
+            column: Numeric signal column (case-sensitive).
+        """
+        if column not in df.columns:
+            return f"ERROR: column '{column}' not found. Use schema() to list columns."
+        if not pd.api.types.is_numeric_dtype(df[column]):
+            return f"ERROR: column '{column}' is not numeric"
+        try:
+            s = df[column].dropna()
+            n = int(len(s))
+            if n < _MIN_FFT_SAMPLES:
+                return _safe_json({"column": column, "n_samples": n, "clear_peak": False,
+                                   "note": f"need >= {_MIN_FFT_SAMPLES} non-null samples for FFT"})
+            raw = s.to_numpy(dtype=float)
+            x = np.arange(n)
+            slope, intercept = np.polyfit(x, raw, 1)
+            resid = raw - (slope * x + intercept)
+            # A constant or purely linear signal detrends to machine-epsilon
+            # residue whose FFT is meaningless noise — guard against reporting a
+            # spurious peak by requiring real energy beyond the linear trend.
+            orig_energy = float(np.sum((raw - raw.mean()) ** 2))
+            resid_energy = float(np.sum(resid ** 2))
+            if orig_energy <= 0.0 or resid_energy <= 1e-9 * orig_energy:
+                return _safe_json({"column": column, "n_samples": n, "clear_peak": False,
+                                   "note": "flat or purely linear — no periodic component"})
+
+            y = resid * np.hanning(n)
+            power = np.abs(np.fft.rfft(y)) ** 2
+            freqs = np.fft.rfftfreq(n, d=1.0)  # cycles per sample
+            # Drop the DC bin; periodicity lives in the AC components.
+            power, freqs = power[1:], freqs[1:]
+            total = float(power.sum())
+            if power.size == 0 or total <= 0.0:
+                return _safe_json({"column": column, "n_samples": n, "clear_peak": False,
+                                   "note": "no spectral power (flat or near-constant after detrend)"})
+            peak = int(power.argmax())
+            peak_freq = float(freqs[peak])
+            rel = float(power[peak] / total)
+            return _safe_json({
+                "column": column,
+                "n_samples": n,
+                "dominant_period_samples": round(1.0 / peak_freq, 2) if peak_freq > 0 else None,
+                "dominant_frequency_cycles_per_sample": round(peak_freq, 6),
+                "relative_power": round(rel, 3),
+                "clear_peak": rel >= _FFT_PEAK_REL,
+            })
+        except Exception as exc:
+            return f"ERROR: detect_periodicity('{column}') failed: {exc}"
+
+    @tool
+    def rank_drivers(
+        target: str,
+        candidates: Optional[list[str]] = None,
+        methods: Optional[list[str]] = None,
+    ) -> str:
+        """Rank which variables most likely DRIVE a target — evidence for a
+        `root_cause` visualization.
+
+        Runs the same composite analysis as the Root Cause view (Pearson,
+        lagged cross-correlation, mutual information, and Granger causality)
+        and returns variables ranked by a composite score. ``lag_samples`` > 0
+        with ``is_leader=true`` means the variable *leads* the target (a likely
+        cause); ``granger_type="CAUSE"`` is strong directional evidence. Large
+        datasets are downsampled internally for speed.
+
+        Args:
+            target: The numeric column to explain (case-sensitive).
+            candidates: Optional subset of variables to consider (defaults to
+                all numeric columns).
+            methods: Optional subset of
+                ["pearson", "cross_corr", "mutual_info", "granger"]; omitting
+                "granger" is faster. Defaults to all four.
+        """
+        if target not in df.columns:
+            return f"ERROR: column '{target}' not found. Use schema() to list columns."
+        if not pd.api.types.is_numeric_dtype(df[target]):
+            return f"ERROR: target '{target}' is not numeric"
+        try:
+            from app.services.analytics.causality import CausalityAnalyzer
+            analyzer = CausalityAnalyzer(top_n=_MAX_DRIVERS)
+            result = analyzer.analyze(df, target, methods=methods, include_variables=candidates)
+        except ValueError as exc:
+            # Analyzer raises ValueError for "no other numeric columns", etc. —
+            # return it as data so the model can adjust rather than abort.
+            return _safe_json({"target": target, "drivers": [], "note": str(exc)})
+        except Exception as exc:
+            return f"ERROR: rank_drivers('{target}') failed: {exc}"
+
+        drivers = []
+        for r in result.get("ranking", []):
+            drivers.append({
+                "variable": r.get("variable"),
+                "score": r.get("score"),
+                "pearson": _clean_scalar(r.get("pearson")),
+                "lag_samples": r.get("lag_samples"),
+                "is_leader": r.get("is_leader"),
+                "mutual_info_norm": _clean_scalar(r.get("mutual_info_norm")),
+                "granger_type": r.get("granger_type"),
+                "granger_p": _clean_scalar(r.get("granger_p")),
+            })
+        return _safe_json({
+            "target": target,
+            "methods_used": result.get("methods_used"),
+            "target_trend": result.get("target_stats", {}).get("trend"),
+            "drivers": drivers,
+        })
+
+    @tool
+    def quick_fit(y_column: str, x_columns: list[str]) -> str:
+        """Fit a quick linear model ``y ~ x1 + x2 + …`` and report fit quality —
+        evidence for a `regression` visualization.
+
+        Returns the R² (how much of the target's variance the predictors
+        explain), the per-predictor coefficients, and the intercept. A high R²
+        means a regression chart will be informative; a low R² means the linear
+        relationship is weak. Rows with nulls are dropped; large datasets are
+        sampled for speed.
+
+        Args:
+            y_column: The numeric target to predict.
+            x_columns: One or more numeric predictor columns.
+        """
+        if y_column not in df.columns:
+            return f"ERROR: column '{y_column}' not found. Use schema() to list columns."
+        if not pd.api.types.is_numeric_dtype(df[y_column]):
+            return f"ERROR: target '{y_column}' is not numeric"
+        if not x_columns:
+            return "ERROR: provide at least one predictor in x_columns"
+        for c in x_columns:
+            if c not in df.columns:
+                return f"ERROR: predictor '{c}' not found. Use schema() to list columns."
+            if not pd.api.types.is_numeric_dtype(df[c]):
+                return f"ERROR: predictor '{c}' is not numeric"
+        try:
+            cols = [y_column] + list(x_columns)
+            sub = df[cols].dropna()
+            if len(sub) > _QUICK_FIT_MAX_ROWS:
+                sub = sub.sample(_QUICK_FIT_MAX_ROWS, random_state=0)
+            n = int(len(sub))
+            if n < len(x_columns) + 2:
+                return _safe_json({"target": y_column, "predictors": list(x_columns),
+                                   "n": n, "note": "not enough non-null rows to fit"})
+
+            from sklearn.linear_model import LinearRegression
+            X = sub[list(x_columns)].to_numpy(dtype=float)
+            yv = sub[y_column].to_numpy(dtype=float)
+            model = LinearRegression().fit(X, yv)
+            r2 = float(model.score(X, yv))
+            coeffs = {
+                c: float(f"{float(w):.4g}") for c, w in zip(x_columns, model.coef_)
+            }
+            return _safe_json({
+                "target": y_column,
+                "predictors": list(x_columns),
+                "r2": round(r2, 4),
+                "coefficients": coeffs,
+                "intercept": float(f"{float(model.intercept_):.4g}"),
+                "n": n,
+            })
+        except Exception as exc:
+            return f"ERROR: quick_fit('{y_column}') failed: {exc}"
+
     return [
         overview,
         schema,
@@ -688,4 +868,7 @@ def build_dataset_tools(df: pd.DataFrame) -> list[BaseTool]:
         quantile,
         outlier_count,
         test_formula,
+        detect_periodicity,
+        rank_drivers,
+        quick_fit,
     ]
