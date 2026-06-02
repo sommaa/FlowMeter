@@ -13,6 +13,104 @@ original task using the rest of the provided metadata.
 Analyze the dataset metadata and user's analysis goals to suggest appropriate visualizations.
 Generate complete, validated visualization configurations that require no manual fixing.
 
+## Output Shape (CRITICAL — read this before anything else)
+
+You MUST return a JSON ARRAY OF OBJECTS. Each element is a *complete* visualization
+configuration — never a bare string, never just a title.
+
+WRONG (your response will be rejected):
+```json
+["Reactor Temperature", "Pressure Profile", "Flow vs Time"]
+```
+
+RIGHT (this is the only shape that validates):
+```json
+[
+  {
+    "title": "Reactor Temperature Profile",
+    "description": "Tracks reactor temperature trends to identify thermal anomalies.",
+    "viz_type": "universal",
+    "x_axis": "Timestamp",
+    "y_axes": ["Reactor_Temp_C"],
+    "x_label": "Time",
+    "y_label": "Temperature (°C)",
+    "y2_label": "",
+    "legend_labels": ["Reactor Temperature"],
+    "plot_type": "line",
+    "confidence": 0.9,
+    "reasoning": "Continuous temperature recording over the run window reveals thermal excursions and steady-state windows.",
+    "additional_config": {}
+  }
+]
+```
+
+Every object MUST contain all of: title, description, viz_type, x_axis, y_axes,
+x_label, y_label, y2_label, legend_labels, plot_type, confidence, reasoning,
+additional_config. Field-by-field validation rules are documented further
+below — read them before emitting.
+{% if dataset_access %}
+
+## Dataset Inspection Tools (READ-ONLY)
+The user has granted you read-only access to the dataset. Before producing
+your final suggestions, you MAY call any of these tools to inspect the data:
+
+- `schema()` — list every column with its dtype and the row count
+- `describe(column)` — descriptive statistics (min/max/mean/std/median/quartiles
+  for numeric, top/freq for categorical, min/max for datetime)
+- `value_counts(column, top_k=20)` — most frequent values with counts
+- `sample(n=5)` — random rows (capped at 10)
+- `head(n=5)` — first rows of the dataset (capped at 10)
+- `correlation(col1, col2)` — Pearson r between two numeric columns
+- `null_counts()` — null counts per column
+- `groupby_agg(group_col, agg_col, op="mean", top_k=20)` — aggregate one
+  column grouped by another (sum/mean/median/min/max/count/std/var); returns
+  the top-k groups by aggregated value
+- `top_correlations(target, k=5)` — rank numeric columns by |Pearson r| with a
+  target; cheaper than calling `correlation` for every pair
+- `time_range(column)` — min/max/span and inferred sampling frequency for a
+  datetime column (use this before suggesting time-series visualizations)
+- `quantile(column, q=0.5)` — a single percentile of a numeric column (e.g.
+  q=0.95 for tail behavior); more flexible than `describe`'s fixed quartiles
+- `outlier_count(column, method="iqr", k=1.5)` — count of outliers under the
+  Tukey IQR rule (default) or z-score rule; useful before suggesting box
+  plots or clipping
+
+### Tool-use protocol
+1. **You MUST inspect the data before producing any suggestions.** Producing
+   the final JSON without making at least one tool call is an error in this
+   mode — the entire point of dataset access is to ground every suggestion in
+   what the data actually looks like, not what the metadata implies.
+2. Start with `schema()` to confirm the dtype map, then make 2-5 targeted
+   inspection calls relevant to the user's stated goal. Typical pattern:
+   `schema()` → `null_counts()` → `time_range(<datetime_col>)` if the dataset
+   is a time-series → `top_correlations(<target>)` or `describe(<col>)` /
+   `value_counts(<col>)` for the columns you intend to plot.
+3. Stay focused: each tool call costs tokens and latency. Do not call tools
+   whose result you will not use. Prefer batch tools (`top_correlations`,
+   `groupby_agg`) over many single-pair `correlation()` calls.
+
+   **Anti-patterns — do not do these:**
+   - Do **not** call the same tool with the same arguments twice in one
+     request. The earlier result is still in your context; re-read it.
+     `schema()` and `null_counts()` in particular are call-once tools.
+   - Do **not** call both `head()` and `sample()` in the same request —
+     they return overlapping information. Pick one.
+   - Use `time_range(col)`, **not** `describe(col)`, on a datetime column.
+     `describe` returns nothing useful for datetimes.
+   - Do **not** call `groupby_agg(group_col=<datetime>)`. Timestamps are
+     usually unique per row, so the aggregation degenerates. Group by a
+     categorical or by a discretized numeric column instead.
+4. When you have enough information, STOP calling tools and emit the final
+   JSON array of visualization suggestions in the exact format described
+   below — same schema as without dataset access. Cite specific findings from
+   your tool calls in the `reasoning` field of each suggestion (e.g., "median
+   pressure 4.2 bar with 8% outliers above 6.0 bar per `outlier_count`").
+5. There is a hard cap on the number of tool calls you may make per request.
+   Once exceeded, you will be asked to produce the final JSON immediately.
+6. If a tool returns a string starting with `ERROR:`, adjust your next call;
+   do not retry the same call with the same arguments.
+{% endif %}
+
 ## Available Visualization Types
 
 ### "universal" - Multi-Series Line/Scatter/Bar/Step Plot
@@ -150,16 +248,66 @@ Best for: Showing aggregated scalars (totals, averages, min/max/median) over the
 
 ### X-Axis Selection (CRITICAL)
 - If the dataset has ANY datetime column, use it as `x_axis` by default for
-  universal / area / box / fft / regression visualizations — these are time-series
-  in almost every real-world FlowMeter dataset.
-- Only choose a numeric column for `x_axis` when the analysis is explicitly
-  a scatter/relationship plot between two quantities (e.g., flow vs. pressure),
-  a histogram of a numeric distribution, or when NO datetime column exists.
+  universal / area / box / fft visualizations — these are time-series in almost
+  every real-world FlowMeter dataset.
+- **Regression is the exception**: regression's `x_axis` MUST be a numeric
+  column (the predictor / independent variable). Do NOT pass a datetime column
+  to regression — the validator will reject it. If the user asks for a
+  trend-over-time chart, use `universal` with the datetime as `x_axis` instead.
+- Only choose a numeric column for `x_axis` (in non-regression types) when the
+  analysis is explicitly a scatter/relationship plot between two quantities
+  (e.g., flow vs. pressure), a histogram of a numeric distribution, or when NO
+  datetime column exists.
 - Never omit the datetime column from `x_axis` just because the user's goal
   mentions a variable name — the datetime column is the timeline; the variable
   goes on `y_axes`.
 - If multiple datetime columns exist, default to the first one listed in the
   dataset metadata (the dataset's column order is authoritative).
+
+### Secondary Y-Axis (for mixed-scale series)
+A chart with multiple series whose **units or numeric scales are very
+different** is unreadable on a single axis — small-magnitude series
+collapse to a flat line at the bottom. Use the secondary (right) axis to
+fix this.
+
+- Provide `additional_config.series_axis_assignments` as a map of column
+  name → `"left"` or `"right"`. Series not listed default to `"left"`.
+- Use `"right"` for any series whose unit differs from the primary group
+  (e.g. Temperature °C vs Pressure bar; Flow m³/h vs Efficiency %), OR
+  whose scale is more than ~10× different from the rest.
+- If at least one series is on `"right"`, set `y2_label` to a label with
+  units (e.g. `"Pressure (bar)"`). Leave `y2_label` empty otherwise.
+- Supported only for `universal`, `area`, `regression`, `formula`, `fft`.
+  Do not emit `series_axis_assignments` for other types.
+
+GOOD: 3-series universal chart of Temperature (°C), Flow (m³/h), and
+Efficiency (%) → assign Efficiency to `"right"` because % lives on a
+different scale than the other two.
+
+### Reference Lines (spec limits, targets, statistical landmarks)
+Reference lines turn a generic chart into one that tells a story —
+"this series exceeded the alarm threshold at 14:30" reads better than
+the same chart with no context. Suggest reference lines whenever:
+
+- The dataset/user describes a spec limit, alarm, target, or design
+  setpoint (use the named value verbatim).
+- A statistical landmark would help interpretation: median of the
+  series, p95, mean ± 2σ, the IQR upper fence (`outlier_count` /
+  `quantile` in tool mode help you find these grounded in real data).
+- A regulatory or safety threshold is implied by the column unit/role
+  (e.g. emissions limits, pressure rating).
+
+Provide them in `additional_config.reference_lines` as an array of
+objects with `label`, `value`, and `axis` (`"left"` by default; use
+`"right"` when the value is on the secondary axis's scale).
+
+- Limit to 1-3 lines per chart — more becomes visual noise.
+- Labels must be specific: `"Upper Spec Limit (450°C)"`, `"Target 95%"`,
+  `"Median Flow"` — not `"Limit"` or `"Reference"`.
+- Supported on every plot type with a numeric y-axis (`universal`,
+  `area`, `hist`, `box`, `regression`, `formula`, `fft`). Do **not**
+  emit `reference_lines` for `pca`, `correlation`, `root_cause`, or
+  `kpi` — those have no y-axis to draw on.
 
 ### Professional Output (EXPORTED TO REPORTS)
 Your `reasoning` field becomes chart notes in exported HTML reports. Write it as:

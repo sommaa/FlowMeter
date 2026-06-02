@@ -15,10 +15,39 @@ The AI service uses a structured workflow to:
 
 Endpoints are grouped under the "AI" tag in OpenAPI docs.
 """
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field, field_validator
-from typing import Optional
 import logging
+import re
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.models.schemas import APIResponse, VisualizationConfig
+from app.services.ai_graph import (
+    VisualizationSuggestion as GraphSuggestion,
+    fetch_provider_models,
+    AIErrorClass,
+    AIProviderError,
+    ERROR_CLASS_TO_HTTP,
+)
+from app.services.ai_graph.providers import SUPPORTED_PROVIDERS
+from app.services.ai_metrics import (
+    ai_request_id,
+    build_aggregates,
+    compute_cost_usd,
+    get_collector,
+    install_request_id_log_filter,
+    new_request_id,
+)
+from app.services.ai_service import (
+    get_ai_service,
+    AIVisualizationService,
+    AIRequest,
+    ColumnMetadata,
+    classify_and_wrap,
+)
+from app.services.data_service import get_data_service
+
 
 # Input-size caps for AI request bodies. These prevent accidentally or
 # maliciously large prompts from blowing up token budgets. Values picked to
@@ -29,23 +58,37 @@ _MAX_COLUMN_NAME_CHARS = 200
 _MAX_COLUMNS = 200
 _MAX_FORMULA_DESCRIPTION_CHARS = 2000
 
-from app.services.ai_service import (
-    get_ai_service,
-    AIVisualizationService,
-    AIRequest,
-    ColumnMetadata,
-    classify_and_wrap,
-)
-from app.services.ai_graph import (
-    VisualizationSuggestion as GraphSuggestion,
-    fetch_provider_models,
-    AIErrorClass,
-    AIProviderError,
-    ERROR_CLASS_TO_HTTP,
-)
-from app.services.ai_metrics import build_aggregates, compute_cost_usd, get_collector
-from app.services.data_service import get_data_service
-from app.models.schemas import APIResponse, VisualizationConfig
+# Model identifiers are user-supplied (the frontend pulls them from each
+# provider's live model-listing API), so the boundary must defensively
+# reject anything outside the alnum + ``.`` ``_`` ``/`` ``-`` charset and
+# also forbid the ``..`` traversal sequence even though both ``.`` chars
+# are individually allowed. Must start with an alphanumeric so leading
+# ``.``/``-``/``/`` shapes (``../etc/passwd``, ``-flag``) are rejected.
+_MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$")
+
+
+def _is_valid_model_name(value: str) -> bool:
+    """Match ``_MODEL_NAME_RE`` and additionally reject ``..`` sequences.
+
+    ``..`` doesn't break the per-character regex but signals a path-
+    traversal shape, so it's blocked explicitly.
+    """
+    return bool(_MODEL_NAME_RE.match(value)) and ".." not in value
+
+
+def _validate_model_name_field(value: str) -> str:
+    """Pydantic ``field_validator`` body for ``model`` fields.
+
+    Shared between every request model that accepts a provider model name.
+    Defined here rather than inline so the rejection message stays
+    consistent and changing the rules requires only one edit.
+    """
+    if not _is_valid_model_name(value):
+        raise ValueError(
+            "Invalid model name. Must start with an alphanumeric, contain only "
+            "[A-Za-z0-9._/-], be 1-128 chars, and not contain '..'."
+        )
+    return value
 
 
 def _ai_error_detail(exc: AIProviderError) -> dict:
@@ -66,9 +109,18 @@ def _ai_error_detail(exc: AIProviderError) -> dict:
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ai", tags=["AI"])
 
+# Install the request-ID log filter once at module import. Idempotent.
+install_request_id_log_filter()
+
 
 class SuggestRequest(BaseModel):
     """Request for AI visualization suggestions."""
+
+    # Reject unknown fields at the boundary. A frontend that ships a typo
+    # or a future-only field gets a 422 instead of silently dropping the
+    # value — which is how schema-drift bugs hide.
+    model_config = ConfigDict(extra="forbid")
+
     dataset_id: str = Field(..., description="ID of the loaded dataset")
     provider: str = Field(..., description="AI provider: 'gemini', 'openai', or 'claude'")
     api_key: str = Field(..., description="API key for the selected provider")
@@ -93,6 +145,36 @@ class SuggestRequest(BaseModel):
         le=10,
         description="Maximum number of suggestions"
     )
+    dataset_access: bool = Field(
+        default=False,
+        description=(
+            "If True, the AI may issue read-only tool calls against the loaded "
+            "dataset (sample rows, value counts, statistics). Default False sends "
+            "only column metadata."
+        ),
+    )
+    max_tool_iterations: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=30,
+        description=(
+            "Override for the agent-loop iteration cap when dataset_access is "
+            "True. Higher values let the AI inspect the dataset more "
+            "thoroughly at the cost of latency; lower values force a faster "
+            "answer. None uses the workflow default."
+        ),
+    )
+    idle_timeout_s: Optional[float] = Field(
+        default=None,
+        ge=10.0,
+        le=600.0,
+        description=(
+            "Per-request override for the streaming idle timeout (seconds). "
+            "The timer resets on every chunk so long-but-progressing "
+            "responses are not killed; only a true stall fires. None lets "
+            "the workflow pick the default based on effort and tool binding."
+        ),
+    )
 
     @field_validator("column_descriptions")
     @classmethod
@@ -110,6 +192,11 @@ class SuggestRequest(BaseModel):
                     f"{len(desc)} chars (max {_MAX_COLUMN_DESCRIPTION_CHARS})"
                 )
         return v
+
+    @field_validator("model")
+    @classmethod
+    def _check_model_name(cls, v: str) -> str:
+        return _validate_model_name_field(v)
 
 
 class ApplySuggestionsRequest(BaseModel):
@@ -170,10 +257,10 @@ async def fetch_models(provider: str, request: FetchModelsRequest):
             - fetched: True on a successful provider call, False otherwise
             - error: provider error message when ``fetched`` is False
     """
-    if provider not in ("gemini", "openai", "claude"):
+    if provider not in SUPPORTED_PROVIDERS:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid provider '{provider}'. Must be 'gemini', 'openai', or 'claude'"
+            detail=f"Invalid provider '{provider}'. Must be one of: {', '.join(SUPPORTED_PROVIDERS)}",
         )
 
     if not request.api_key or not request.api_key.strip():
@@ -247,19 +334,27 @@ async def suggest_visualizations(request: SuggestRequest):
         }
         ```
     """
+    # Stamp a request ID for log correlation. The filter installed above
+    # prepends ``[req-xxxxx]`` to every log line emitted during this
+    # request; the workflow re-reads the same ID into AIMetricsRecord so
+    # logs and metrics share a join key. No explicit reset — FastAPI runs
+    # each request in its own asyncio task, so the ContextVar dies with
+    # the task scope.
+    ai_request_id.set(new_request_id())
+
     data_service = get_data_service()
     ai_service = get_ai_service()
-    
+
     # Validate dataset exists
     metadata = data_service.get_metadata(request.dataset_id)
     if not metadata:
         raise HTTPException(status_code=404, detail="Dataset not found")
-    
+
     # Validate provider
-    if request.provider not in ["gemini", "openai", "claude"]:
+    if request.provider not in SUPPORTED_PROVIDERS:
         raise HTTPException(
-            status_code=400, 
-            detail=f"Invalid provider '{request.provider}'. Must be 'gemini', 'openai', or 'claude'"
+            status_code=400,
+            detail=f"Invalid provider '{request.provider}'. Must be one of: {', '.join(SUPPORTED_PROVIDERS)}",
         )
     
     # Validate API key is provided
@@ -270,9 +365,23 @@ async def suggest_visualizations(request: SuggestRequest):
     if not request.guidance_text or not request.guidance_text.strip():
         raise HTTPException(status_code=400, detail="Guidance text is required")
     
-    # Validate all columns have descriptions
+    # Reconciliation appends ``_rec`` to constrained variables (e.g.
+    # ``Power_MW`` → ``Power_MW_rec``). These are *not* independent variables:
+    # they're cleaned-up versions of their parent columns and convey the
+    # same semantic meaning. Treating them as separate variables for AI
+    # suggestion is wrong on two counts:
+    #   1. The user shouldn't have to describe them again — they'd just
+    #      repeat the parent's description.
+    #   2. The AI shouldn't propose duplicate "Power_MW over time" and
+    #      "Power_MW_rec over time" charts.
+    # Filter them out of both the description-validation gate and the
+    # column metadata sent to the AI. The same convention is already used
+    # by templates.py:178 for global-variable binding.
+    ai_columns = [c for c in metadata.column_names if not c.endswith("_rec")]
+
+    # Validate all (non-reconciled) columns have descriptions
     missing_descriptions = [
-        col for col in metadata.column_names 
+        col for col in ai_columns
         if col not in request.column_descriptions or not request.column_descriptions[col].strip()
     ]
     if missing_descriptions:
@@ -283,14 +392,14 @@ async def suggest_visualizations(request: SuggestRequest):
         if remaining > 0:
             detail += f" and {remaining} more"
         raise HTTPException(status_code=400, detail=detail)
-    
+
     # Get statistics for richer context
     stats = data_service.get_statistics(request.dataset_id)
     stats_map = {s.column: s.dict() for s in stats}
-    
+
     # Build column metadata
     columns = []
-    for col in metadata.column_names:
+    for col in ai_columns:
         data_type = (
             "datetime" if col in metadata.datetime_columns else
             "numeric" if col in metadata.numeric_columns else
@@ -303,6 +412,18 @@ async def suggest_visualizations(request: SuggestRequest):
             stats=stats_map.get(col)
         ))
     
+    # When dataset_access is on, fetch the actual DataFrame so the agent loop
+    # can bind tools that close over it. Refuse the request if the dataset is
+    # gone (e.g. evicted from memory) — there's nothing for the tools to query.
+    dataframe = None
+    if request.dataset_access:
+        dataframe = data_service.get_dataset(request.dataset_id)
+        if dataframe is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Dataset not found in memory; cannot enable dataset access",
+            )
+
     try:
         # Build AI request — `available_viz_types` defaults to every VizType
         # via AIRequest's default_factory, which derives from the schema.
@@ -313,8 +434,12 @@ async def suggest_visualizations(request: SuggestRequest):
             max_suggestions=request.max_suggestions,
             model=request.model,
             effort=request.effort,
+            dataset_access=request.dataset_access,
+            dataframe=dataframe,
+            max_tool_iterations=request.max_tool_iterations,
+            idle_timeout_s=request.idle_timeout_s,
         )
-        
+
         # Get suggestions
         suggestions = await ai_service.suggest_visualizations(
             request=ai_request,
@@ -342,7 +467,11 @@ async def suggest_visualizations(request: SuggestRequest):
         logger.error(f"AI suggestion failed: {e}", exc_info=True)
 
         # Classify into a typed AIProviderError, then map error_class → status.
-        wrapped = classify_and_wrap(e, provider=request.provider)
+        # Pass api_key so provider SDKs that echo the key in error messages
+        # have it redacted before it lands in the HTTP response.
+        wrapped = classify_and_wrap(
+            e, provider=request.provider, api_key=request.api_key
+        )
         status = ERROR_CLASS_TO_HTTP.get(wrapped.error_class, 500)
         raise HTTPException(status_code=status, detail=_ai_error_detail(wrapped))
 
@@ -442,6 +571,9 @@ async def apply_suggestions(request: ApplySuggestionsRequest):
 
 class FormulaGenerateApiRequest(BaseModel):
     """Request for AI formula generation."""
+
+    model_config = ConfigDict(extra="forbid")
+
     provider: str = Field(..., description="AI provider: 'gemini', 'openai', or 'claude'")
     api_key: str = Field(..., description="API key for the selected provider")
     model: str = Field(..., description="Model to use (e.g. 'gpt-4o', 'claude-sonnet-4-6')")
@@ -455,6 +587,20 @@ class FormulaGenerateApiRequest(BaseModel):
         max_length=_MAX_FORMULA_DESCRIPTION_CHARS,
         description="User's description of what to compute"
     )
+    dataset_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "Loaded dataset identifier — required when ``dataset_access`` is True "
+            "so the agent loop can bind read-only tools to the actual DataFrame."
+        ),
+    )
+    dataset_access: bool = Field(
+        default=False,
+        description=(
+            "If True, the AI may issue read-only tool calls against the loaded "
+            "dataset to inspect data before generating the formula. Default False."
+        ),
+    )
 
     @field_validator("columns")
     @classmethod
@@ -462,6 +608,11 @@ class FormulaGenerateApiRequest(BaseModel):
         if len(v) > _MAX_COLUMNS:
             raise ValueError(f"Too many columns: {len(v)} (max {_MAX_COLUMNS})")
         return v
+
+    @field_validator("model")
+    @classmethod
+    def _check_model_name(cls, v: str) -> str:
+        return _validate_model_name_field(v)
 
 
 @router.post("/generate-formula", response_model=APIResponse)
@@ -533,7 +684,10 @@ async def generate_formula_endpoint(request: FormulaGenerateApiRequest):
         ```
     """
     from app.services.ai_graph import generate_formula, ColumnInfo
-    
+
+    # Stamp request ID for log correlation (mirrors /ai/suggest).
+    ai_request_id.set(new_request_id())
+
     # Validate provider
     if request.provider not in ["gemini", "openai", "claude"]:
         raise HTTPException(
@@ -553,17 +707,40 @@ async def generate_formula_endpoint(request: FormulaGenerateApiRequest):
     if not request.columns or len(request.columns) == 0:
         raise HTTPException(status_code=400, detail="At least one column must be provided")
     
+    # When dataset_access is on, the dataset_id must resolve to a live
+    # DataFrame so the agent loop can bind tools to it.
+    dataframe = None
+    if request.dataset_access:
+        if not request.dataset_id:
+            raise HTTPException(
+                status_code=400,
+                detail="dataset_id is required when dataset_access is enabled",
+            )
+        data_service = get_data_service()
+        dataframe = data_service.get_dataset(request.dataset_id)
+        if dataframe is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Dataset not found in memory; cannot enable dataset access",
+            )
+
     try:
-        # Convert to ColumnInfo objects
+        # Convert to ColumnInfo objects. Reconciled (``_rec``) columns are
+        # filtered out — they're cleaned-up duplicates of their parent
+        # variables and would just bloat the prompt with duplicates. See
+        # the longer rationale in suggest_visualizations above.
         columns = []
         for col_dict in request.columns:
+            name = col_dict.get("name", "")
+            if name.endswith("_rec"):
+                continue
             columns.append(ColumnInfo(
-                name=col_dict.get("name", ""),
+                name=name,
                 description=col_dict.get("description", ""),
                 data_type=col_dict.get("data_type", "numeric"),
                 stats=col_dict.get("stats")
             ))
-        
+
         # Generate formula
         formula = await generate_formula(
             provider_name=request.provider,
@@ -571,7 +748,9 @@ async def generate_formula_endpoint(request: FormulaGenerateApiRequest):
             columns=columns,
             description=request.description,
             model=request.model,
-            effort=request.effort
+            effort=request.effort,
+            dataset_access=request.dataset_access,
+            dataframe=dataframe,
         )
         
         return APIResponse(
@@ -587,7 +766,9 @@ async def generate_formula_endpoint(request: FormulaGenerateApiRequest):
     except Exception as e:
         logger.error(f"Formula generation failed: {e}", exc_info=True)
 
-        wrapped = classify_and_wrap(e, provider=request.provider)
+        wrapped = classify_and_wrap(
+            e, provider=request.provider, api_key=request.api_key
+        )
         status = ERROR_CLASS_TO_HTTP.get(wrapped.error_class, 500)
         raise HTTPException(status_code=status, detail=_ai_error_detail(wrapped))
 

@@ -14,7 +14,10 @@ Focus on insights that would be valuable for technical reports.
 ## Available Visualization Types
 {{ viz_types }}
 
-Return your suggestions as a JSON array with these fields for each:
+## Required Fields (per suggestion)
+
+Every suggestion object MUST set every required field below.
+
 - title: string (descriptive, Title Case, 5-100 characters)
 - description: string (one-line summary, 10-300 characters)
 - viz_type: string (from available types)
@@ -22,7 +25,8 @@ Return your suggestions as a JSON array with these fields for each:
 - y_axes: array of strings (column names, can be empty for formula)
 - x_label: string (with units)
 - y_label: string (with units)
-- legend_labels: array of strings (custom descriptive names matching y_axes order)  
+- y2_label: string (with units; empty unless a series is routed to the secondary axis)
+- legend_labels: array of strings (custom descriptive names matching y_axes order)
 - plot_type: string ("line", "scatter", "step", "bar", "line+scatter") - for universal type
 - confidence: number (0.0-1.0)
 - reasoning: string (professional technical note, 20-{{ reasoning_max_chars }} characters, no first-person language)
@@ -32,8 +36,44 @@ additional_config examples:
   For regression: { "add_regression": true, "regression_degree": 2, "show_confidence_interval": true }
   For PCA: { "pca_components": 3 }
   For formula: { "formula": { "input": "result = col['A'] * 2" } }
+  For mixed-scale series (universal/area/regression/formula/fft):
+    { "series_axis_assignments": { "Efficiency": "right" } }
+    Pair this with y2_label = "Efficiency (%)" on the suggestion.
+  For reference lines (any plot with a y-axis):
+    { "reference_lines": [
+        { "label": "Upper Spec Limit (450°C)", "value": 450, "axis": "left" },
+        { "label": "Target 95%", "value": 95, "axis": "right" }
+    ] }
   For KPI: { "kpi_metrics": [
       { "label": "Total Energy", "operation": "sum", "column": "power", "unit": "kWh", "decimals": 0 },
       { "label": "Avg Temperature", "operation": "avg", "column": "temp", "unit": "°C", "decimals": 1 },
       { "label": "Efficiency", "operation": "formula", "formula": "col['power'].sum() / col['fuel'].sum()", "unit": "%", "decimals": 2 }
   ] }
+
+## Output Shape (final reminder)
+
+Return a JSON ARRAY OF OBJECTS — never an array of bare title strings.
+Each object must be a complete suggestion per the field list above.
+
+WRONG (rejected): `["Reactor Temperature", "Pressure Profile"]`
+
+RIGHT:
+```json
+[
+  {
+    "title": "Reactor Temperature Profile",
+    "description": "Tracks reactor temperature trends to identify thermal anomalies.",
+    "viz_type": "universal",
+    "x_axis": "Timestamp",
+    "y_axes": ["Reactor_Temp_C"],
+    "x_label": "Time",
+    "y_label": "Temperature (°C)",
+    "y2_label": "",
+    "legend_labels": ["Reactor Temperature"],
+    "plot_type": "line",
+    "confidence": 0.9,
+    "reasoning": "Continuous temperature recording reveals thermal excursions and steady-state windows.",
+    "additional_config": {}
+  }
+]
+```

@@ -8,48 +8,18 @@ Provides validators for:
 """
 
 import logging
-import os
 from typing import Optional
 from difflib import get_close_matches
 
+from ._debug import debug_log as _debug_log
 from .schemas import (
-    VisualizationSuggestion, 
-    ValidationResult, 
+    VisualizationSuggestion,
+    ValidationResult,
     ColumnMetadata,
-    VizType,
 )
 
 
 logger = logging.getLogger(__name__)
-
-
-def _get_debug_level() -> int:
-    """Retrieve the debug verbosity level from environment variable.
-
-    Reads the AI_DEBUG_LEVEL environment variable to control logging verbosity.
-    Higher values enable more detailed debug output during validation.
-
-    Returns:
-        Integer debug level (0 = disabled, 1 = minimal, 2 = verbose, 3 = trace).
-        Returns 0 if the environment variable is not set or invalid.
-    """
-    try:
-        return int(os.environ.get("AI_DEBUG_LEVEL", "0"))
-    except ValueError:
-        return 0
-
-
-def _debug_log(msg: str, min_level: int = 2) -> None:
-    """Log a debug message if the current debug level meets the threshold.
-
-    Args:
-        msg: The debug message to log.
-        min_level: Minimum debug level required to emit this message.
-            Level 2 shows validation step results, level 3 shows detailed
-            field-by-field information.
-    """
-    if _get_debug_level() >= min_level:
-        logger.info(f"[AI-DEBUG] {msg}")
 
 
 # ============= Column Validation =============
@@ -95,11 +65,11 @@ def validate_columns_exist(
         matches = get_close_matches(suggestion.x_axis, list(valid_columns), n=1, cutoff=0.6)
         suggestion_text = f"Did you mean '{matches[0]}'?" if matches else "Check column name"
         result.add_error("x_axis", f"Column '{suggestion.x_axis}' not found", suggestion_text)
-        _debug_log(f"       ✗ x_axis '{suggestion.x_axis}' NOT FOUND", min_level=2)
+        _debug_log(f"       [FAIL] x_axis '{suggestion.x_axis}' NOT FOUND", min_level=2)
         if matches:
             _debug_log(f"         Suggested: {matches[0]}", min_level=2)
     elif suggestion.x_axis:
-        _debug_log(f"       ✓ x_axis '{suggestion.x_axis}' exists", min_level=3)
+        _debug_log(f"       [OK] x_axis '{suggestion.x_axis}' exists", min_level=3)
     
     # For formula viz types, skip y_axes validation - 'result', 'result1', etc. are computed
     if suggestion.viz_type == "formula":
@@ -130,26 +100,26 @@ def validate_columns_exist(
                     f"Column '{col}' not found",
                     suggestion_text,
                 )
-                _debug_log(f"       ✗ kpi metric column '{col}' NOT FOUND", min_level=2)
+                _debug_log(f"       [FAIL] kpi metric column '{col}' NOT FOUND", min_level=2)
             else:
-                _debug_log(f"       ✓ kpi metric column '{col}' exists", min_level=3)
+                _debug_log(f"       [OK] kpi metric column '{col}' exists", min_level=3)
         return result
 
     # Check y_axes
     for col in suggestion.y_axes:
         # Allow common computed/placeholder names that aren't real columns
         if col.lower().startswith("result"):
-            _debug_log(f"       ✓ y_axis '{col}' (computed/result column)", min_level=3)
+            _debug_log(f"       [OK] y_axis '{col}' (computed/result column)", min_level=3)
             continue
         if col not in valid_columns:
             matches = get_close_matches(col, list(valid_columns), n=1, cutoff=0.6)
             suggestion_text = f"Did you mean '{matches[0]}'?" if matches else "Check column name"
             result.add_error("y_axes", f"Column '{col}' not found", suggestion_text)
-            _debug_log(f"       ✗ y_axis '{col}' NOT FOUND", min_level=2)
+            _debug_log(f"       [FAIL] y_axis '{col}' NOT FOUND", min_level=2)
             if matches:
                 _debug_log(f"         Suggested: {matches[0]}", min_level=2)
         else:
-            _debug_log(f"       ✓ y_axis '{col}' exists", min_level=3)
+            _debug_log(f"       [OK] y_axis '{col}' exists", min_level=3)
     
     return result
 
@@ -206,7 +176,7 @@ def validate_column_types(
             result.add_error("x_axis", 
                            f"Regression requires numeric x_axis, got '{x_type}'",
                            "Choose a numeric column for the target variable")
-            _debug_log(f"       ✗ Regression x_axis type mismatch: {x_type}", min_level=2)
+            _debug_log(f"       [FAIL] Regression x_axis type mismatch: {x_type}", min_level=2)
         
         for col in suggestion.y_axes:
             col_type = get_type(col)
@@ -215,7 +185,7 @@ def validate_column_types(
                 result.add_error("y_axes",
                                f"Regression predictor '{col}' should be numeric, got '{col_type}'",
                                "Choose numeric columns as predictors")
-                _debug_log(f"       ✗ Regression predictor type mismatch: {col}={col_type}", min_level=2)
+                _debug_log(f"       [FAIL] Regression predictor type mismatch: {col}={col_type}", min_level=2)
     
     # PCA requires all numeric
     elif viz_type == "pca":
@@ -226,7 +196,7 @@ def validate_column_types(
                 result.add_error("y_axes",
                                f"PCA variable '{col}' must be numeric, got '{col_type}'",
                                "PCA only works with numeric data")
-                _debug_log(f"       ✗ PCA variable type mismatch: {col}={col_type}", min_level=2)
+                _debug_log(f"       [FAIL] PCA variable type mismatch: {col}={col_type}", min_level=2)
     
     # Correlation requires numeric
     elif viz_type == "correlation":
@@ -237,7 +207,7 @@ def validate_column_types(
                 result.add_error("y_axes",
                                f"Correlation variable '{col}' must be numeric, got '{col_type}'",
                                "Correlation matrix requires numeric data")
-                _debug_log(f"       ✗ Correlation variable type mismatch: {col}={col_type}", min_level=2)
+                _debug_log(f"       [FAIL] Correlation variable type mismatch: {col}={col_type}", min_level=2)
     
     # Histogram typically for numeric
     elif viz_type == "hist":
@@ -247,7 +217,7 @@ def validate_column_types(
             result.add_error("x_axis",
                            f"Histogram is best for numeric data, got '{x_type}'",
                            "Consider using a bar chart for categorical data")
-            _debug_log(f"       ✗ Histogram x_axis type mismatch: {x_type}", min_level=2)
+            _debug_log(f"       [FAIL] Histogram x_axis type mismatch: {x_type}", min_level=2)
     
     # Box plots require numeric y_axes
     elif viz_type == "box":
@@ -258,102 +228,7 @@ def validate_column_types(
                 result.add_error("y_axes",
                                f"Box plot variable '{col}' must be numeric, got '{col_type}'",
                                "Box plots show statistical distributions of numeric data")
-                _debug_log(f"       ✗ Box variable type mismatch: {col}={col_type}", min_level=2)
-    
-    return result
-
-
-# ============= Viz-Type Specific Validation =============
-
-def validate_viz_type_requirements(
-    suggestion: VisualizationSuggestion
-) -> ValidationResult:
-    """Validate visualization-type specific structural requirements.
-
-    Each visualization type has minimum requirements for the number of
-    variables and specific configuration fields. This validator ensures
-    the suggestion meets those requirements.
-
-    Minimum y_axes requirements:
-        - **pca**: 3+ variables (dimensionality reduction needs multiple features)
-        - **correlation**: 3+ variables (meaningful correlation matrix)
-        - **regression**: 1+ predictor variables
-        - **universal/area/box/hist**: 1+ variable
-        - **formula**: 0 (generates its own computed column)
-
-    Additional requirements:
-        - **universal**: plot_type must be one of: line, scatter, step, bar, line+scatter
-        - **formula**: must have additional_config.formula.input defined
-
-    Args:
-        suggestion: The visualization suggestion to validate.
-
-    Returns:
-        ValidationResult containing any structural requirement errors.
-
-    Example:
-        >>> result = validate_viz_type_requirements(pca_suggestion)
-        >>> if not result.is_valid:
-        ...     print(result.errors[0].message)
-        "pca requires at least 3 Y variable(s), got 2"
-    """
-    result = ValidationResult()
-    
-    viz_type = suggestion.viz_type
-    y_count = len(suggestion.y_axes)
-    
-    _debug_log(f"  validate_viz_type_requirements: {suggestion.title}", min_level=3)
-    _debug_log(f"       viz_type: {viz_type}, y_count: {y_count}", min_level=3)
-    
-    # Minimum y_axes requirements
-    min_y_axes = {
-        "pca": 3,
-        "correlation": 3,
-        "regression": 1,
-        "universal": 1,
-        "area": 1,
-        "box": 1,
-        "hist": 1,
-        "fft": 1,
-        "root_cause": 3,
-        "formula": 0,  # Formula generates its own data
-        "kpi": 0,  # KPI aggregates scalars, no y-axis series
-    }
-
-    required = min_y_axes.get(viz_type, 1)
-    _debug_log(f"       Required y_axes: {required}, has: {y_count}", min_level=3)
-    if y_count < required:
-        result.add_error("y_axes",
-                        f"{viz_type} requires at least {required} Y variable(s), got {y_count}",
-                        f"Add more variables to y_axes")
-        _debug_log(f"       ✗ Insufficient y_axes: {y_count} < {required}", min_level=2)
-    else:
-        _debug_log(f"       ✓ y_axes count OK", min_level=3)
-    
-    # Universal plot_type validation
-    if viz_type == "universal":
-        valid_plot_types = ["line", "scatter", "step", "bar", "line+scatter"]
-        _debug_log(f"       plot_type: {suggestion.plot_type}", min_level=3)
-        if suggestion.plot_type not in valid_plot_types:
-            result.add_error("plot_type",
-                           f"Invalid plot_type '{suggestion.plot_type}'",
-                           f"Use one of: {', '.join(valid_plot_types)}")
-            _debug_log(f"       ✗ Invalid plot_type: {suggestion.plot_type}", min_level=2)
-        else:
-            _debug_log(f"       ✓ plot_type valid", min_level=3)
-    
-    # Formula requires expression
-    if viz_type == "formula":
-        config = suggestion.additional_config
-        has_formula = config.formula and config.formula.input
-        _debug_log(f"       formula present: {has_formula}", min_level=3)
-        if not has_formula:
-            result.add_error("additional_config.formula",
-                           "Formula visualization requires a formula expression",
-                           "Provide a Python expression like 'result = col[\"col1\"] + col[\"col2\"]'")
-            _debug_log(f"       ✗ Missing formula expression", min_level=2)
-        else:
-            _debug_log(f"       ✓ Formula expression present: {config.formula.input[:50]}...", min_level=3)
+                _debug_log(f"       [FAIL] Box variable type mismatch: {col}={col_type}", min_level=2)
     
     return result
 
@@ -417,15 +292,17 @@ def validate_suggestion_complete(
 ) -> ValidationResult:
     """Run the complete validation pipeline on a visualization suggestion.
 
-    Executes all validation checks in sequence to ensure the suggestion
-    is valid, type-correct, structurally sound, and professionally formatted.
+    Pipeline:
+        1. **Column existence**: Verify referenced columns exist in the dataset.
+        2. **Column types**: Check data types match viz requirements
+           (skipped when ``column_metadata`` is None).
+        3. **Professional output**: Ensure title/reasoning quality standards.
 
-    Validation pipeline:
-        1. **Column existence**: Verify all referenced columns exist
-        2. **Column types**: Check data types match visualization requirements
-           (only if column_metadata is provided)
-        3. **Viz-type requirements**: Validate structural requirements
-        4. **Professional output**: Ensure quality standards for export
+    Note: viz-type structural requirements (min y_axes per type, formula
+    expression present, etc.) are enforced by the ``VisualizationSuggestion``
+    model-level validator at Pydantic construction time — running them again
+    here would be redundant since the suggestion has already passed schema
+    validation before reaching this function.
 
     Args:
         suggestion: The visualization suggestion to validate.
@@ -434,76 +311,24 @@ def validate_suggestion_complete(
             metadata for type validation. If None, type checking is skipped.
 
     Returns:
-        Combined ValidationResult aggregating all errors from each
-        validation step. The result is valid only if all steps pass.
-
-    Example:
-        >>> result = validate_suggestion_complete(
-        ...     suggestion,
-        ...     valid_columns={"temp", "pressure", "time"},
-        ...     column_metadata=metadata
-        ... )
-        >>> if result.is_valid:
-        ...     print("Suggestion ready for rendering")
-        >>> else:
-        ...     for error in result.errors:
-        ...         print(f"{error.field}: {error.message}")
+        Combined ValidationResult aggregating all errors from each step.
     """
     combined = ValidationResult()
-    
-    # 1. Column existence
+
     col_result = validate_columns_exist(suggestion, valid_columns)
     if not col_result.is_valid:
         combined.is_valid = False
         combined.errors.extend(col_result.errors)
-    
-    # 2. Column types (if metadata available)
+
     if column_metadata:
         type_result = validate_column_types(suggestion, column_metadata)
         if not type_result.is_valid:
             combined.is_valid = False
             combined.errors.extend(type_result.errors)
-    
-    # 3. Viz-type requirements
-    viz_result = validate_viz_type_requirements(suggestion)
-    if not viz_result.is_valid:
-        combined.is_valid = False
-        combined.errors.extend(viz_result.errors)
-    
-    # 4. Professional output
+
     prof_result = validate_professional_output(suggestion)
     if not prof_result.is_valid:
         combined.is_valid = False
         combined.errors.extend(prof_result.errors)
-    
+
     return combined
-
-
-def get_column_suggestions(
-    invalid_column: str,
-    valid_columns: set[str],
-    n: int = 3
-) -> list[str]:
-    """Find closest matching column names for an invalid column reference.
-
-    Uses fuzzy string matching to suggest corrections for misspelled or
-    incorrect column names. This helps users and AI systems quickly
-    identify the intended column.
-
-    Args:
-        invalid_column: The invalid column name to find matches for.
-        valid_columns: Set of valid column names from the dataset.
-        n: Maximum number of suggestions to return. Defaults to 3.
-
-    Returns:
-        List of up to ``n`` valid column names that closely match the
-        invalid reference, sorted by similarity. Returns empty list if
-        no matches meet the similarity threshold (0.5).
-
-    Example:
-        >>> get_column_suggestions("temprature", {"temperature", "pressure", "time"})
-        ["temperature"]
-        >>> get_column_suggestions("xyz", {"temperature", "pressure"})
-        []
-    """
-    return get_close_matches(invalid_column, list(valid_columns), n=n, cutoff=0.5)

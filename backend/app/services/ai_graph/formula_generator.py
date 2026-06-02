@@ -19,14 +19,22 @@ Generated formula:
     result = np.where(col['Input'] != 0, efficiency, 0)
 """
 
+import json
 import logging
-from typing import Optional
+from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 from .providers import get_chat_model
-from .formula_validator import validate_formula, fix_common_syntax_errors
+from .formula_validator import validate_formula
+from .tools import build_dataset_tools
 
 logger = logging.getLogger(__name__)
+
+
+# Same cap as the suggestion agent loop. Bounds worst-case latency and token
+# spend when dataset_access is on; chosen at the same level so users get
+# consistent behavior across both AI features.
+_FORMULA_MAX_TOOL_ITERATIONS = 8
 
 
 class ColumnInfo(BaseModel):
@@ -167,13 +175,165 @@ Remember:
 """
 
 
+_FORMULA_TOOL_USE_BLOCK = """
+## Dataset Inspection Tools (READ-ONLY)
+
+The user has granted you read-only access to the dataset. Before producing
+the final formula, you MAY call any of these tools to inspect the data:
+
+- `schema()` — list every column with its dtype and the row count
+- `describe(column)` — descriptive statistics for one column
+- `value_counts(column, top_k=20)` — most frequent values with counts
+- `sample(n=5)` — random rows (capped at 10)
+- `head(n=5)` — first rows of the dataset (capped at 10)
+- `correlation(col1, col2)` — Pearson r between two numeric columns
+- `null_counts()` — null counts per column
+- `groupby_agg(group_col, agg_col, op="mean", top_k=20)` — aggregate one
+  column grouped by another
+- `top_correlations(target, k=5)` — top numeric columns by |Pearson r| with target
+- `time_range(column)` — min/max/span/inferred frequency for a datetime column
+- `quantile(column, q=0.5)` — a single percentile of a numeric column
+- `outlier_count(column, method="iqr", k=1.5)` — count outliers (IQR or z-score)
+
+### Tool-use protocol
+1. Call tools only when their result will affect the formula (e.g. check for
+   nulls before dividing, check the value range before normalizing).
+2. There is a hard cap on tool calls per request — when you have enough
+   information, STOP calling tools and emit ONLY the final Python formula
+   in the format described above (no markdown, no commentary).
+3. If a tool returns a string starting with `ERROR:`, adjust your next call.
+"""
+
+
+def _strip_code_fences(code: str) -> str:
+    """Strip surrounding ```python ... ``` fences from an LLM response."""
+    code = code.strip()
+    if code.startswith("```python"):
+        code = code[9:]
+    elif code.startswith("```"):
+        code = code[3:]
+    if code.endswith("```"):
+        code = code[:-3]
+    return code.strip()
+
+
+async def _run_formula_agent_loop(
+    llm,
+    system_prompt: str,
+    user_prompt: str,
+    dataframe,
+    max_iterations: int = _FORMULA_MAX_TOOL_ITERATIONS,
+) -> str:
+    """Run the LLM ↔ tools loop and return the final assistant text.
+
+    Mirrors ``agent_loop_node`` in graph.py but inlined here because the
+    formula generator returns a plain code string rather than structured
+    suggestion JSON, so the rest of the orchestration differs.
+    """
+    from langchain_core.messages import HumanMessage, ToolMessage
+
+    tools = build_dataset_tools(dataframe)
+    tool_map = {t.name: t for t in tools}
+    bound_llm = llm.bind_tools(tools)
+
+    messages: list = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+    iterations = 0
+    final_content = ""
+
+    while iterations < max_iterations:
+        iterations += 1
+        response = await bound_llm.ainvoke(messages)
+        messages.append(response)
+
+        tool_calls = getattr(response, "tool_calls", None) or []
+        if not tool_calls:
+            content = response.content
+            if isinstance(content, list):
+                # Anthropic extended-thinking returns a list of blocks
+                parts = []
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        parts.append(block.get("text", ""))
+                final_content = "".join(parts)
+            else:
+                final_content = str(content) if content is not None else ""
+            break
+
+        logger.info(
+            "Formula agent loop iter %d: model requested %d tool call(s)",
+            iterations,
+            len(tool_calls),
+        )
+
+        for tc in tool_calls:
+            if isinstance(tc, dict):
+                name = tc.get("name")
+                args = tc.get("args") or {}
+                tc_id = tc.get("id")
+            else:
+                name = getattr(tc, "name", None)
+                args = getattr(tc, "args", {}) or {}
+                tc_id = getattr(tc, "id", None)
+
+            tool_obj = tool_map.get(name)
+            if tool_obj is None:
+                result_content = f"ERROR: unknown tool '{name}'"
+            else:
+                try:
+                    result_content = await tool_obj.ainvoke(args)
+                except Exception as exc:
+                    result_content = f"ERROR: tool '{name}' raised: {exc}"
+
+            if not isinstance(result_content, str):
+                try:
+                    result_content = json.dumps(result_content, default=str)
+                except Exception:
+                    result_content = str(result_content)
+
+            messages.append(
+                ToolMessage(content=result_content, tool_call_id=tc_id, name=name or "")
+            )
+    else:
+        # Cap hit while still calling tools — force final answer with the
+        # unbound model so it cannot request more tools.
+        logger.warning(
+            "Formula agent loop hit cap=%d; forcing final code", max_iterations
+        )
+        messages.append(
+            HumanMessage(
+                content=(
+                    "Tool call cap reached. Stop calling tools and emit ONLY "
+                    "the final Python formula code, no markdown, no commentary."
+                )
+            )
+        )
+        response = await llm.ainvoke(messages)
+        content = response.content
+        if isinstance(content, list):
+            parts = []
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    parts.append(block.get("text", ""))
+            final_content = "".join(parts)
+        else:
+            final_content = str(content) if content is not None else ""
+
+    return final_content
+
+
 async def generate_formula(
     provider_name: str,
     api_key: str,
     columns: list[ColumnInfo],
     description: str,
     model: Optional[str] = None,
-    effort: Optional[str] = None
+    effort: Optional[str] = None,
+    dataset_access: bool = False,
+    dataframe: Optional[Any] = None,
 ) -> str:
     """
     Generate a formula expression using AI.
@@ -185,6 +345,11 @@ async def generate_formula(
         description: User's description of what to compute
         model: Optional specific model to use
         effort: Reasoning effort level or None
+        dataset_access: When True, the AI may issue read-only tool calls
+            against the supplied DataFrame before producing the final formula.
+            Default False uses the existing metadata-only single-shot path.
+        dataframe: pandas DataFrame the bound tools close over. Required when
+            ``dataset_access`` is True; ignored otherwise.
 
     Returns:
         Generated Python formula code
@@ -192,33 +357,46 @@ async def generate_formula(
     Raises:
         ValueError: If generation fails or formula is invalid
     """
-    logger.info(f"Generating formula with {provider_name}, {len(columns)} columns")
+    logger.info(
+        f"Generating formula with {provider_name}, {len(columns)} columns "
+        f"(dataset_access={dataset_access})"
+    )
 
     # Get LLM
     llm = get_chat_model(provider_name, api_key, model=model, effort=effort)
-    
-    # Build prompts
+
+    # Build prompts. When dataset_access is on, append the tool-use protocol
+    # block to the system prompt so the model knows it can probe the data.
     system_prompt = FORMULA_SYSTEM_PROMPT
+    if dataset_access and dataframe is not None:
+        system_prompt = FORMULA_SYSTEM_PROMPT + _FORMULA_TOOL_USE_BLOCK
     user_prompt = _build_user_prompt(columns, description)
-    
+
     # Generate
     try:
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
-        
-        response = await llm.ainvoke(messages)
-        generated_code = response.content.strip()
-        
-        # Clean up response - remove markdown code blocks if present
-        if generated_code.startswith("```python"):
-            generated_code = generated_code[9:]
-        elif generated_code.startswith("```"):
-            generated_code = generated_code[3:]
-        if generated_code.endswith("```"):
-            generated_code = generated_code[:-3]
-        generated_code = generated_code.strip()
+        if dataset_access and dataframe is not None:
+            generated_code = await _run_formula_agent_loop(
+                llm=llm,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                dataframe=dataframe,
+            )
+        else:
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+            response = await llm.ainvoke(messages)
+            generated_code = response.content
+            if isinstance(generated_code, list):
+                # Anthropic extended-thinking returns a list of blocks
+                parts = []
+                for block in generated_code:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        parts.append(block.get("text", ""))
+                generated_code = "".join(parts)
+
+        generated_code = _strip_code_fences(generated_code)
         
         # Validate the formula
         valid_columns = {col.name for col in columns}

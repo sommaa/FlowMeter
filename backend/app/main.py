@@ -107,6 +107,20 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"AIMetrics load_recent_from_disk skipped: {e}")
 
+    # AI subsystem expects a single uvicorn worker — the metrics ring and
+    # JSONL appender are process-local and don't coordinate across workers.
+    # Warn loudly if the environment looks like a multi-worker deployment.
+    try:
+        web_concurrency = int(os.environ.get("WEB_CONCURRENCY", "1"))
+    except ValueError:
+        web_concurrency = 1
+    if web_concurrency > 1:
+        logger.warning(
+            "WEB_CONCURRENCY=%d but the AI metrics ring/JSONL is process-local. "
+            "Run with a single worker until a shared metrics store is wired up.",
+            web_concurrency,
+        )
+
     yield
     
     # --- Shutdown ---

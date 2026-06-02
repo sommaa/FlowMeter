@@ -146,4 +146,54 @@ describe('AISettingsModal', () => {
         const apiKeyInput = screen.getByPlaceholderText(/Enter your .* API key/) as HTMLInputElement;
         expect(apiKeyInput.value).toBe('secret-key');
     });
+
+    describe('Advanced section', () => {
+        it('Advanced toggle expands and collapses the section', () => {
+            render(<AISettingsModal {...defaultProps} />);
+            // Collapsed by default — slider id is not in DOM.
+            expect(screen.queryByLabelText('Idle Timeout')).toBeNull();
+            fireEvent.click(screen.getByText('Advanced'));
+            expect(screen.getByLabelText('Idle Timeout')).toBeTruthy();
+            fireEvent.click(screen.getByText('Advanced'));
+            expect(screen.queryByLabelText('Idle Timeout')).toBeNull();
+        });
+
+        it('hydrates ai_idle_timeout_s and ai_max_tool_iterations from localStorage', () => {
+            // Pre-seed both Advanced knobs and the dataset_access flag so the
+            // Max Tool Iterations slider is rendered.
+            localStorage.setItem('ai_idle_timeout_s', '120');
+            localStorage.setItem('ai_max_tool_iterations', '7');
+            localStorage.setItem('ai_dataset_access', 'true');
+            render(<AISettingsModal {...defaultProps} />);
+            fireEvent.click(screen.getByText('Advanced'));
+
+            const idleSlider = screen.getByLabelText('Idle Timeout') as HTMLInputElement;
+            expect(idleSlider.value).toBe('120');
+
+            const iterSlider = screen.getByLabelText('Maximum Tool Iterations') as HTMLInputElement;
+            expect(iterSlider.value).toBe('7');
+        });
+
+        it('idle-timeout slider min matches backend ge=10.0 validator', () => {
+            render(<AISettingsModal {...defaultProps} />);
+            fireEvent.click(screen.getByText('Advanced'));
+            const slider = screen.getByLabelText('Idle Timeout') as HTMLInputElement;
+            expect(slider.min).toBe('10');
+        });
+    });
+
+    describe('API key bounds', () => {
+        it('Clear all keys removes every ai_key_* entry from localStorage', () => {
+            localStorage.setItem('ai_key_gemini', btoa('g'));
+            localStorage.setItem('ai_key_openai', btoa('o'));
+            localStorage.setItem('ai_key_claude', btoa('c'));
+
+            render(<AISettingsModal {...defaultProps} />);
+            fireEvent.click(screen.getByText('Clear all keys'));
+
+            expect(localStorage.getItem('ai_key_gemini')).toBeNull();
+            expect(localStorage.getItem('ai_key_openai')).toBeNull();
+            expect(localStorage.getItem('ai_key_claude')).toBeNull();
+        });
+    });
 });

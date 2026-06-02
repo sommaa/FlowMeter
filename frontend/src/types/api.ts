@@ -662,6 +662,26 @@ export interface AISuggestRequest {
   guidance_text: string;
   existing_visualization_titles?: string[];
   max_suggestions?: number;
+  /**
+   * If true, the AI may issue read-only tool calls against the loaded
+   * dataset (sample rows, value counts, statistics) before producing
+   * suggestions. Default false sends only column metadata.
+   */
+  dataset_access?: boolean;
+  /**
+   * Override for the agent-loop iteration cap. Higher values let the AI
+   * inspect the dataset more thoroughly at the cost of latency. Only
+   * meaningful when dataset_access is true; undefined uses the workflow
+   * default.
+   */
+  max_tool_iterations?: number;
+  /**
+   * Per-request override for the streaming idle timeout (seconds). The
+   * timer resets on every chunk, so a long-but-progressing response is
+   * never killed — only a true stall fires. Undefined lets the backend
+   * pick the default from effort and tool binding.
+   */
+  idle_timeout_s?: number;
 }
 
 export interface AISuggestResponse {

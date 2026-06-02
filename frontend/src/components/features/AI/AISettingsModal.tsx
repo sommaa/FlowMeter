@@ -35,7 +35,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Eye, EyeOff, Key, Sparkles, ExternalLink, Check, RefreshCw } from 'lucide-react';
+import { Eye, EyeOff, Key, Sparkles, ExternalLink, Check, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
 import { AIProvider, AIModelInfo, AIProviderInfo, AIEffort } from '@/types';
 import { cn } from '@/lib/utils';
 import { aiApi } from '@/services/api';
@@ -53,7 +53,16 @@ import { aiApi } from '@/services/api';
 interface Props {
     isOpen: boolean;
     onClose: () => void;
-    onContinue: (provider: AIProvider, apiKey: string, model: string, effort?: AIEffort, maxSuggestions?: number) => void;
+    onContinue: (
+        provider: AIProvider,
+        apiKey: string,
+        model: string,
+        effort?: AIEffort,
+        maxSuggestions?: number,
+        datasetAccess?: boolean,
+        maxToolIterations?: number,
+        idleTimeoutS?: number,
+    ) => void;
     providers: AIProviderInfo[];
     isLoading?: boolean;
 }
@@ -168,6 +177,27 @@ export const AISettingsModal: React.FC<Props> = ({
     const [dynamicModels, setDynamicModels] = useState<AIModelInfo[] | null>(null);
     const [isFetchingModels, setIsFetchingModels] = useState(false);
     const [effort, setEffort] = useState<AIEffort | undefined>(undefined);
+    // Privacy default is OFF — when this toggle is on, the AI may issue
+    // read-only tool calls against the loaded dataset (sample rows, value
+    // counts, statistics) before producing suggestions.
+    const [datasetAccess, setDatasetAccess] = useState<boolean>(false);
+    // Cap on the number of agent ↔ tool round trips when dataset_access is
+    // on. Higher values let the AI inspect the data more thoroughly at the
+    // cost of latency. Default tracks the workflow default on the backend.
+    const [maxToolIterations, setMaxToolIterations] = useState<number>(10);
+    // Per-chunk idle timeout (seconds). The streaming helper resets this
+    // on every chunk — a long-but-progressing response is never killed,
+    // only a true stall fires. Default matches the backend's tool-bound
+    // default. Bounds match the backend validator (10–600s).
+    const [idleTimeoutS, setIdleTimeoutS] = useState<number>(180);
+    // The advanced section is collapsed by default so first-time users see
+    // the simple form. State persists across modal opens within the session
+    // but is not written to localStorage — the recommended UX is to leave
+    // it collapsed once configured.
+    const [advancedOpen, setAdvancedOpen] = useState<boolean>(false);
+    // Surface a transient validation error (e.g. API key too long for
+    // localStorage) so the user understands why "Continue" did not save.
+    const [continueError, setContinueError] = useState<string | null>(null);
     const fetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const providerInfo = providers.find(p => p.id === provider);
@@ -240,7 +270,7 @@ export const AISettingsModal: React.FC<Props> = ({
         setSelectedModel(dynamicModels[0]?.id || '');
     }, [dynamicModels, selectedModel]);
 
-    // Load saved max suggestions and effort on mount
+    // Load saved max suggestions, effort, and dataset-access flag on mount
     useEffect(() => {
         const savedMaxSuggestions = localStorage.getItem('ai_max_suggestions');
         if (savedMaxSuggestions) {
@@ -253,12 +283,64 @@ export const AISettingsModal: React.FC<Props> = ({
         if (savedEffort && ['low', 'medium', 'high'].includes(savedEffort)) {
             setEffort(savedEffort as AIEffort);
         }
+        // Stored as the literal string 'true' or 'false' so anything else
+        // (missing, malformed) collapses to the privacy-preserving default.
+        const savedDatasetAccess = localStorage.getItem('ai_dataset_access');
+        setDatasetAccess(savedDatasetAccess === 'true');
+
+        const savedMaxIters = localStorage.getItem('ai_max_tool_iterations');
+        if (savedMaxIters) {
+            const parsed = parseInt(savedMaxIters, 10);
+            if (!isNaN(parsed) && parsed >= 1 && parsed <= 30) {
+                setMaxToolIterations(parsed);
+            }
+        }
+        const savedIdleTimeout = localStorage.getItem('ai_idle_timeout_s');
+        if (savedIdleTimeout) {
+            const parsed = parseInt(savedIdleTimeout, 10);
+            if (!isNaN(parsed) && parsed >= 10 && parsed <= 600) {
+                setIdleTimeoutS(parsed);
+            }
+        }
     }, []);
 
+    // localStorage entries above ~10K characters often trip browser quotas
+    // silently. Reject early so the user knows why "Continue" didn't save.
+    const _MAX_API_KEY_CHARS = 10_000;
+
+    const handleClearAllKeys = () => {
+        // One-click affordance to wipe every stored provider key. Useful
+        // after logging out of a shared machine or rotating credentials.
+        for (const p of ['gemini', 'openai', 'claude'] as const) {
+            localStorage.removeItem(`ai_key_${p}`);
+        }
+        setApiKey('');
+        setDynamicModels(null);
+        setContinueError(null);
+    };
+
     const handleContinue = () => {
-        // Save key, model, and effort
-        if (apiKey.trim()) {
-            localStorage.setItem(`ai_key_${provider}`, btoa(apiKey.trim()));
+        const trimmed = apiKey.trim();
+        if (trimmed.length > _MAX_API_KEY_CHARS) {
+            setContinueError(
+                `API key is too long (${trimmed.length} chars; max ${_MAX_API_KEY_CHARS}). ` +
+                'Paste only the key itself, not the surrounding text.'
+            );
+            return;
+        }
+        setContinueError(null);
+        // Save key, model, effort, and dataset-access toggle
+        if (trimmed) {
+            try {
+                localStorage.setItem(`ai_key_${provider}`, btoa(trimmed));
+            } catch (e) {
+                // Hitting the quota here is exceptional after the length
+                // guard above — surface so the user isn't left wondering.
+                setContinueError(
+                    `Could not save API key to browser storage: ${(e as Error).message || 'unknown error'}.`
+                );
+                return;
+            }
         }
         if (selectedModel) {
             localStorage.setItem(`ai_model_${provider}`, selectedModel);
@@ -269,12 +351,29 @@ export const AISettingsModal: React.FC<Props> = ({
         } else {
             localStorage.removeItem('ai_effort');
         }
-        onContinue(provider, apiKey.trim(), selectedModel, effort, maxSuggestions);
+        localStorage.setItem('ai_dataset_access', datasetAccess ? 'true' : 'false');
+        localStorage.setItem('ai_max_tool_iterations', String(maxToolIterations));
+        localStorage.setItem('ai_idle_timeout_s', String(idleTimeoutS));
+        onContinue(
+            provider,
+            trimmed,
+            selectedModel,
+            effort,
+            maxSuggestions,
+            datasetAccess,
+            maxToolIterations,
+            idleTimeoutS,
+        );
     };
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="max-w-md">
+            {/* `max-h-[90vh] flex flex-col` + an inner `min-h-0 overflow-y-auto`
+                scroll container keep the modal usable on small viewports
+                once the advanced section is expanded. Without these, the
+                dialog grows past the viewport and the bottom buttons are
+                clipped by Radix's portal positioning. */}
+            <DialogContent className="max-w-md max-h-[90vh] flex flex-col">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <Sparkles className="w-5 h-5 text-primary" />
@@ -285,7 +384,7 @@ export const AISettingsModal: React.FC<Props> = ({
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="space-y-6 py-4">
+                <div className="flex-1 min-h-0 overflow-y-auto space-y-6 py-4 pr-1">
                     {/* Provider Selection */}
                     <div className="space-y-3">
                         <Label>Select AI Provider</Label>
@@ -355,34 +454,6 @@ export const AISettingsModal: React.FC<Props> = ({
                         </div>
                     )}
 
-                    {/* Reasoning Effort */}
-                    <div className="space-y-2">
-                        <Label>Reasoning Effort</Label>
-                        <div className="grid grid-cols-4 gap-2">
-                            {([undefined, 'low', 'medium', 'high'] as const).map((level) => (
-                                <button
-                                    key={level ?? 'none'}
-                                    type="button"
-                                    onClick={() => setEffort(level as AIEffort | undefined)}
-                                    disabled={isLoading}
-                                    className={cn(
-                                        "px-3 py-1.5 text-sm rounded-md border transition-all",
-                                        "hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-primary/20",
-                                        effort === level
-                                            ? "border-primary bg-primary/5 font-medium"
-                                            : "border-border",
-                                        isLoading && "opacity-50 cursor-not-allowed"
-                                    )}
-                                >
-                                    {level ? level.charAt(0).toUpperCase() + level.slice(1) : 'Default'}
-                                </button>
-                            ))}
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                            Higher effort enables extended thinking for better results but uses more tokens.
-                        </p>
-                    </div>
-
                     {/* API Key */}
                     <div className="space-y-2">
                         <div className="flex items-center justify-between">
@@ -416,9 +487,22 @@ export const AISettingsModal: React.FC<Props> = ({
                                 {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                             </button>
                         </div>
-                        <p className="text-xs text-muted-foreground">
-                            Your key is stored locally in your browser and never sent to our servers.
-                        </p>
+                        <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs text-muted-foreground">
+                                Your key is stored locally in your browser and never sent to our servers.
+                            </p>
+                            <button
+                                type="button"
+                                onClick={handleClearAllKeys}
+                                disabled={isLoading}
+                                className="text-xs text-muted-foreground hover:text-destructive underline-offset-2 hover:underline disabled:opacity-50"
+                            >
+                                Clear all keys
+                            </button>
+                        </div>
+                        {continueError && (
+                            <p className="text-xs text-destructive">{continueError}</p>
+                        )}
                     </div>
 
                     {/* Max Suggestions */}
@@ -443,9 +527,161 @@ export const AISettingsModal: React.FC<Props> = ({
                             <span>10</span>
                         </div>
                     </div>
+
+                    {/* Advanced — collapsed by default. Houses the less-common
+                        knobs (reasoning effort, dataset access + iteration
+                        cap, streaming idle timeout) so first-time users see a
+                        simple form. */}
+                    <div className="border-t pt-4">
+                        <button
+                            type="button"
+                            onClick={() => setAdvancedOpen(v => !v)}
+                            className={cn(
+                                "flex items-center gap-2 w-full text-left text-sm font-medium",
+                                "text-muted-foreground hover:text-foreground transition-colors",
+                                "focus:outline-none focus:ring-2 focus:ring-primary/20 rounded-md py-1"
+                            )}
+                            aria-expanded={advancedOpen}
+                        >
+                            {advancedOpen ? (
+                                <ChevronDown className="w-4 h-4" />
+                            ) : (
+                                <ChevronRight className="w-4 h-4" />
+                            )}
+                            Advanced
+                        </button>
+
+                        {advancedOpen && (
+                            <div className="space-y-6 pt-4">
+                                {/* Reasoning Effort */}
+                                <div className="space-y-2">
+                                    <Label>Reasoning Effort</Label>
+                                    <div className="grid grid-cols-4 gap-2">
+                                        {([undefined, 'low', 'medium', 'high'] as const).map((level) => (
+                                            <button
+                                                key={level ?? 'none'}
+                                                type="button"
+                                                onClick={() => setEffort(level as AIEffort | undefined)}
+                                                disabled={isLoading}
+                                                className={cn(
+                                                    "px-3 py-1.5 text-sm rounded-md border transition-all",
+                                                    "hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-primary/20",
+                                                    effort === level
+                                                        ? "border-primary bg-primary/5 font-medium"
+                                                        : "border-border",
+                                                    isLoading && "opacity-50 cursor-not-allowed"
+                                                )}
+                                            >
+                                                {level ? level.charAt(0).toUpperCase() + level.slice(1) : 'Default'}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">
+                                        Higher effort enables extended thinking for better results but uses more tokens.
+                                    </p>
+                                </div>
+
+                                {/* Dataset Access (privacy toggle) */}
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div className="flex-1">
+                                            <Label htmlFor="dataset-access">Allow AI to interact with dataset</Label>
+                                            <p className="text-xs text-muted-foreground mt-1">
+                                                When off, the AI sees only column names and your descriptions. When on,
+                                                the AI can run read-only queries (sample rows, value counts, statistics)
+                                                on your data — better suggestions, but actual values are sent to the
+                                                provider.
+                                            </p>
+                                        </div>
+                                        <button
+                                            id="dataset-access"
+                                            type="button"
+                                            role="switch"
+                                            aria-checked={datasetAccess}
+                                            onClick={() => setDatasetAccess(v => !v)}
+                                            disabled={isLoading}
+                                            className={cn(
+                                                "relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors",
+                                                "focus:outline-none focus:ring-2 focus:ring-primary/40",
+                                                datasetAccess ? "bg-primary" : "bg-muted",
+                                                isLoading && "opacity-50 cursor-not-allowed"
+                                            )}
+                                        >
+                                            <span
+                                                className={cn(
+                                                    "inline-block h-5 w-5 transform rounded-full bg-background shadow-sm transition-transform",
+                                                    datasetAccess ? "translate-x-5" : "translate-x-0.5"
+                                                )}
+                                            />
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Max Tool Iterations — only meaningful when dataset access is on. */}
+                                {datasetAccess && (
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <Label htmlFor="max-tool-iterations">Maximum Tool Iterations</Label>
+                                            <span className="text-sm font-medium text-primary">{maxToolIterations}</span>
+                                        </div>
+                                        <input
+                                            id="max-tool-iterations"
+                                            type="range"
+                                            min="1"
+                                            max="30"
+                                            value={maxToolIterations}
+                                            onChange={(e) => setMaxToolIterations(Number(e.target.value))}
+                                            className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                                            disabled={isLoading}
+                                        />
+                                        <div className="flex justify-between text-xs text-muted-foreground">
+                                            <span>1</span>
+                                            <span>15</span>
+                                            <span>30</span>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground">
+                                            How many times the AI may inspect the dataset before producing
+                                            suggestions. Higher values allow more thorough analysis at the cost
+                                            of latency.
+                                        </p>
+                                    </div>
+                                )}
+
+                                {/* Idle Timeout — per-chunk streaming timeout. */}
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <Label htmlFor="idle-timeout">Idle Timeout</Label>
+                                        <span className="text-sm font-medium text-primary">{idleTimeoutS}s</span>
+                                    </div>
+                                    <input
+                                        id="idle-timeout"
+                                        type="range"
+                                        min="10"
+                                        max="600"
+                                        step="10"
+                                        value={idleTimeoutS}
+                                        onChange={(e) => setIdleTimeoutS(Number(e.target.value))}
+                                        className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                                        disabled={isLoading}
+                                    />
+                                    <div className="flex justify-between text-xs text-muted-foreground">
+                                        <span>10s</span>
+                                        <span>180s</span>
+                                        <span>600s</span>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">
+                                        How long to wait between streaming chunks before declaring the
+                                        provider stalled. The timer resets on every chunk, so a
+                                        long-but-progressing response is never killed — only true stalls
+                                        fire. Raise this if you see timeouts on slow reasoning models.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 </div>
 
-                <div className="flex justify-end gap-2">
+                <div className="flex justify-end gap-2 pt-4 border-t">
                     <Button variant="outline" onClick={onClose} disabled={isLoading}>
                         Cancel
                     </Button>

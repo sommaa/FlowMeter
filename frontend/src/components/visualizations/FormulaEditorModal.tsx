@@ -29,6 +29,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { flushSync } from 'react-dom';
 import { Search, Calculator, Sparkles, Loader2, CheckSquare, AlertCircle, CheckCircle2, Circle } from 'lucide-react';
 import { Button } from '@/components/common';
 import { Textarea } from '@/components/ui/textarea';
@@ -299,14 +300,15 @@ export const FormulaEditorModal: React.FC<FormulaEditorModalProps> = ({
             insertion +
             currentValue.substring(end);
 
-        setLocalFormula(newValue);
-
-        // Restore focus and move cursor to end of insertion
-        // Use setTimeout to ensure React render cycle completes
-        setTimeout(() => {
-            textarea.focus();
-            textarea.setSelectionRange(start + insertion.length, start + insertion.length);
-        }, 0);
+        // Synchronously commit the new formula so the textarea has the
+        // updated value before we move the cursor. ``flushSync`` replaces
+        // the prior ``setTimeout(..., 0)`` workaround that raced with
+        // React 18's automatic batching.
+        flushSync(() => {
+            setLocalFormula(newValue);
+        });
+        textarea.focus();
+        textarea.setSelectionRange(start + insertion.length, start + insertion.length);
     };
 
     // Toggle column selection for AI
@@ -381,6 +383,11 @@ export const FormulaEditorModal: React.FC<FormulaEditorModalProps> = ({
                 stats: undefined, // Could be populated if we have stats available
             }));
 
+            // Read the dataset-access toggle from the same localStorage slot
+            // the AI Settings modal writes — single source of truth across
+            // the suggestion wizard and the formula generator.
+            const datasetAccess = localStorage.getItem('ai_dataset_access') === 'true';
+
             const result = await aiApi.generateFormula({
                 provider: aiSettings.provider,
                 api_key: aiSettings.apiKey,
@@ -388,6 +395,8 @@ export const FormulaEditorModal: React.FC<FormulaEditorModalProps> = ({
                 effort: aiSettings.effort,
                 columns,
                 description: aiDescription,
+                dataset_access: datasetAccess,
+                dataset_id: datasetAccess ? currentDataset?.id : undefined,
             });
 
             // Insert the generated formula

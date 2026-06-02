@@ -130,6 +130,71 @@ class TestSuggestLengthCaps:
         assert response.status_code == 422
 
 
+class TestSuggestDatasetAccess:
+    """Tests for the dataset_access flag on POST /api/v1/ai/suggest.
+
+    Privacy is ON by default — the request must succeed without ever calling
+    ``get_dataset``. When the user opts in, the API must fetch the DataFrame
+    and surface a 404 if it's missing.
+    """
+
+    def _meta(self):
+        m = MagicMock()
+        m.column_names = ["x"]
+        m.numeric_columns = ["x"]
+        m.datetime_columns = []
+        return m
+
+    def _payload(self, **overrides):
+        p = {
+            "dataset_id": "ds1",
+            "provider": "openai",
+            "api_key": "sk-test",
+            "model": "gpt-4o",
+            "column_descriptions": {"x": "var"},
+            "guidance_text": "analyze",
+        }
+        p.update(overrides)
+        return p
+
+    def test_default_does_not_fetch_dataset(self, client):
+        # When dataset_access is left unset (defaults to False), the API must
+        # NOT call get_dataset — that path would only be needed for tool-use.
+        mock_data_service = MagicMock()
+        mock_data_service.get_metadata.return_value = self._meta()
+        mock_data_service.get_statistics.return_value = []
+
+        mock_ai = MagicMock()
+        # Use AsyncMock-equivalent via a coroutine that returns []
+        async def _ok(*args, **kwargs):
+            return []
+        mock_ai.suggest_visualizations = _ok
+
+        with patch("app.api.ai.get_data_service", return_value=mock_data_service), \
+             patch("app.api.ai.get_ai_service", return_value=mock_ai):
+            response = client.post("/api/v1/ai/suggest", json=self._payload())
+
+        assert response.status_code == 200
+        # The privacy-preserving path must never touch get_dataset.
+        mock_data_service.get_dataset.assert_not_called()
+
+    def test_dataset_access_true_fetches_and_404s_when_missing(self, client):
+        # dataset_access=True with a missing DataFrame must return 404.
+        mock_data_service = MagicMock()
+        mock_data_service.get_metadata.return_value = self._meta()
+        mock_data_service.get_statistics.return_value = []
+        mock_data_service.get_dataset.return_value = None  # missing in memory
+
+        with patch("app.api.ai.get_data_service", return_value=mock_data_service):
+            response = client.post(
+                "/api/v1/ai/suggest",
+                json=self._payload(dataset_access=True),
+            )
+
+        assert response.status_code == 404
+        assert "dataset access" in response.json()["detail"].lower()
+
+
 class TestGenerateFormulaValidation:
     """Tests for POST /api/v1/ai/generate-formula validation."""
 
@@ -333,3 +398,83 @@ class TestMetricsEndpoint:
         assert agg["count"] == 1
         assert agg["success_rate"] == 1.0
         assert "openai" in agg["by_provider"]
+
+
+class TestSuggestRequestValidatorRegression:
+    """The CRITICAL/HIGH backend validators (model regex, extra-forbid,
+    idle_timeout range, max_tool_iterations range) must reject malformed
+    payloads with 422 before the workflow runs."""
+
+    def _valid_payload(self):
+        return {
+            "dataset_id": "ds1",
+            "provider": "openai",
+            "api_key": "sk-test",
+            "model": "gpt-4o",
+            "column_descriptions": {"x": "var"},
+            "guidance_text": "analyze",
+        }
+
+    def test_model_regex_rejects_path_traversal(self, client):
+        payload = {**self._valid_payload(), "model": "../etc/passwd"}
+        response = client.post("/api/v1/ai/suggest", json=payload)
+        assert response.status_code == 422
+
+    def test_model_regex_rejects_overlong(self, client):
+        payload = {**self._valid_payload(), "model": "x" * 200}
+        response = client.post("/api/v1/ai/suggest", json=payload)
+        assert response.status_code == 422
+
+    def test_extra_field_rejected(self, client):
+        payload = {**self._valid_payload(), "unknown_future_field": True}
+        response = client.post("/api/v1/ai/suggest", json=payload)
+        assert response.status_code == 422
+
+    def test_idle_timeout_below_min_rejected(self, client):
+        payload = {**self._valid_payload(), "idle_timeout_s": 5.0}
+        response = client.post("/api/v1/ai/suggest", json=payload)
+        assert response.status_code == 422
+
+    def test_max_tool_iterations_above_cap_rejected(self, client):
+        payload = {**self._valid_payload(), "max_tool_iterations": 31}
+        response = client.post("/api/v1/ai/suggest", json=payload)
+        assert response.status_code == 422
+
+
+class TestCorrectionTimeoutEndToEnd:
+    """A provider timeout that fires only during the correction call must
+    propagate as HTTP 504 with ``error_class=timeout`` — not get folded
+    into validation_errors and look like a successful empty result."""
+
+    def test_correction_timeout_returns_504(self, client):
+        from app.services.ai_graph import AIProviderTimeout
+
+        mock_ai = MagicMock()
+        mock_ai.suggest_visualizations.side_effect = AIProviderTimeout(
+            provider="openai", elapsed_s=120.0
+        )
+
+        mock_data_service = MagicMock()
+        mock_meta = MagicMock()
+        mock_meta.column_names = ["x"]
+        mock_meta.numeric_columns = ["x"]
+        mock_meta.datetime_columns = []
+        mock_data_service.get_metadata.return_value = mock_meta
+        mock_data_service.get_statistics.return_value = []
+
+        payload = {
+            "dataset_id": "ds1",
+            "provider": "openai",
+            "api_key": "sk-test",
+            "model": "gpt-4o",
+            "column_descriptions": {"x": "var"},
+            "guidance_text": "analyze the correction path",
+        }
+        with patch("app.api.ai.get_data_service", return_value=mock_data_service), \
+             patch("app.api.ai.get_ai_service", return_value=mock_ai):
+            response = client.post("/api/v1/ai/suggest", json=payload)
+
+        assert response.status_code == 504
+        detail = response.json()["detail"]
+        assert detail["error_class"] == "timeout"
+        assert detail["provider"] == "openai"

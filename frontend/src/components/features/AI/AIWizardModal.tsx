@@ -186,6 +186,16 @@ export const AIWizardModal: React.FC<Props> = ({
     // later overwrite state with a stale response.
     const suggestAbortRef = useRef<AbortController | null>(null);
 
+    // Defense-in-depth alongside the AbortController: even if a settled
+    // promise's continuation runs after unmount (microtask race), refuse
+    // any state updates. The ref is initialized true and flipped false in
+    // the cleanup of the mount effect below.
+    const isMountedRef = useRef(true);
+
+    // Transient apply errors live separately from the suggest-generation
+    // error so they don't clear the suggestions list. Cleared on retry.
+    const [applyError, setApplyError] = useState<string | null>(null);
+
     // Load providers on mount
     useEffect(() => {
         if (isOpen && providers.length === 0) {
@@ -215,24 +225,41 @@ export const AIWizardModal: React.FC<Props> = ({
         wasOpenRef.current = isOpen;
     }, [isOpen]); // Only depend on isOpen, not on initial values
 
-    // Final safety net: abort on unmount.
+    // Final safety net: abort on unmount and flip the mount guard so any
+    // late-arriving promise continuations refuse to setState.
     useEffect(() => {
+        isMountedRef.current = true;
         return () => {
+            isMountedRef.current = false;
             suggestAbortRef.current?.abort();
         };
     }, []);
 
-    // Validation
+    // Validation. Reconciled (`_rec`) columns are hidden from the editor
+    // (see ColumnDescriptionEditor) so they don't need descriptions —
+    // exclude them here too, otherwise the "Continue" button would never
+    // unlock on datasets with reconciliation applied.
     const isDescriptionsComplete = useCallback(() => {
         if (!currentDataset) return false;
         return (
             !!guidanceText.trim() &&
-            currentDataset.column_names.every(col => columnDescriptions[col]?.trim())
+            currentDataset.column_names
+                .filter(col => !col.endsWith('_rec'))
+                .every(col => columnDescriptions[col]?.trim())
         );
     }, [currentDataset, columnDescriptions, guidanceText]);
 
     // Generate suggestions
-    const generateSuggestions = async (provider: AIProvider, key: string, model: string, effort?: AIEffort, maxSuggestionsParam?: number) => {
+    const generateSuggestions = async (
+        provider: AIProvider,
+        key: string,
+        model: string,
+        effort?: AIEffort,
+        maxSuggestionsParam?: number,
+        datasetAccess?: boolean,
+        maxToolIterations?: number,
+        idleTimeoutS?: number,
+    ) => {
         if (!currentDataset) return;
 
         // Abort any prior in-flight call before starting a new one.
@@ -262,11 +289,21 @@ export const AIWizardModal: React.FC<Props> = ({
                 column_descriptions: columnDescriptions,
                 guidance_text: guidanceText,
                 existing_visualization_titles: visualizations.map(v => v.title),
-                max_suggestions: suggestionsCount
+                max_suggestions: suggestionsCount,
+                dataset_access: datasetAccess ?? false,
+                // Only meaningful when dataset_access is on. Backend treats
+                // undefined as "use the workflow default".
+                max_tool_iterations: datasetAccess ? maxToolIterations : undefined,
+                // Idle timeout applies to every streaming call (metadata-only
+                // and tool-bound), so it is forwarded regardless of
+                // dataset_access. Backend treats undefined as "pick the
+                // default from effort + tool binding".
+                idle_timeout_s: idleTimeoutS,
             }, controller.signal);
 
-            // Ignore a response that arrived after a newer abort (e.g. modal closed).
-            if (controller.signal.aborted) return;
+            // Ignore a response that arrived after a newer abort (e.g. modal closed)
+            // or after the wizard unmounted entirely.
+            if (controller.signal.aborted || !isMountedRef.current) return;
             setSuggestions(response.suggestions);
         } catch (err) {
             // Axios raises a CanceledError when the signal aborts; suppress it
@@ -274,6 +311,7 @@ export const AIWizardModal: React.FC<Props> = ({
             if (axios.isCancel(err) || (err instanceof Error && err.name === 'CanceledError')) {
                 return;
             }
+            if (!isMountedRef.current) return;
             if (err instanceof AIError) {
                 setError(err.message);
                 setErrorClass(err.error_class);
@@ -284,7 +322,7 @@ export const AIWizardModal: React.FC<Props> = ({
                 setRetryAfterS(null);
             }
         } finally {
-            if (suggestAbortRef.current === controller) {
+            if (suggestAbortRef.current === controller && isMountedRef.current) {
                 setIsLoading(false);
                 suggestAbortRef.current = null;
             }
@@ -307,15 +345,25 @@ export const AIWizardModal: React.FC<Props> = ({
     const handleApplySuggestion = async (suggestion: AISuggestion) => {
         // Guard against double-click: bail if already applied.
         if (appliedIds.has(suggestion.id)) return;
+        setApplyError(null);
         try {
             const response = await aiApi.applySuggestions([suggestion]);
+            if (!isMountedRef.current) return;
             if (response.configurations.length > 0) {
                 const config = normalizeAppliedConfig(response.configurations[0] as VisualizationConfig);
                 setAppliedConfigs(prev => [...prev, config]);
                 setAppliedIds(prev => new Set(prev).add(suggestion.id));
             }
         } catch (err) {
+            // Visible apply errors prevent silent "Apply" clicks that look
+            // successful but actually did nothing.
             console.error('Failed to apply suggestion:', err);
+            if (!isMountedRef.current) return;
+            setApplyError(
+                err instanceof Error
+                    ? `Failed to apply "${suggestion.title}": ${err.message}`
+                    : `Failed to apply "${suggestion.title}".`
+            );
         }
     };
 
@@ -324,8 +372,10 @@ export const AIWizardModal: React.FC<Props> = ({
         const unapplied = suggestions.filter((s) => !appliedIds.has(s.id));
         if (unapplied.length === 0) return;
 
+        setApplyError(null);
         try {
             const response = await aiApi.applySuggestions(unapplied);
+            if (!isMountedRef.current) return;
             const newConfigs = (response.configurations as VisualizationConfig[]).map(normalizeAppliedConfig);
             setAppliedConfigs(prev => [...prev, ...newConfigs]);
 
@@ -336,11 +386,18 @@ export const AIWizardModal: React.FC<Props> = ({
             });
         } catch (err) {
             console.error('Failed to apply suggestions:', err);
+            if (!isMountedRef.current) return;
+            setApplyError(
+                err instanceof Error
+                    ? `Failed to apply ${unapplied.length} suggestions: ${err.message}`
+                    : `Failed to apply ${unapplied.length} suggestions.`
+            );
         }
     };
 
     // Retry generation
     const handleRetry = () => {
+        setApplyError(null);
         if (apiKey) {
             generateSuggestions(selectedProvider, apiKey, selectedModel, selectedEffort, maxSuggestions);
         } else {
@@ -369,19 +426,29 @@ export const AIWizardModal: React.FC<Props> = ({
 
             case 'suggestions':
                 return (
-                    <AISuggestionsPanel
-                        suggestions={suggestions}
-                        isLoading={isLoading}
-                        error={error}
-                        errorClass={errorClass}
-                        retryAfterS={retryAfterS}
-                        onApply={handleApplySuggestion}
-                        onApplyAll={handleApplyAll}
-                        onRetry={handleRetry}
-                        onOpenSettings={() => setStep('settings')}
-                        appliedIds={appliedIds}
-                        providerName={providers.find(p => p.id === selectedProvider)?.name}
-                    />
+                    <>
+                        {applyError && (
+                            <div
+                                role="alert"
+                                className="mb-3 px-3 py-2 rounded-md border border-destructive/40 bg-destructive/5 text-sm text-destructive"
+                            >
+                                {applyError}
+                            </div>
+                        )}
+                        <AISuggestionsPanel
+                            suggestions={suggestions}
+                            isLoading={isLoading}
+                            error={error}
+                            errorClass={errorClass}
+                            retryAfterS={retryAfterS}
+                            onApply={handleApplySuggestion}
+                            onApplyAll={handleApplyAll}
+                            onRetry={handleRetry}
+                            onOpenSettings={() => setStep('settings')}
+                            appliedIds={appliedIds}
+                            providerName={providers.find(p => p.id === selectedProvider)?.name}
+                        />
+                    </>
                 );
 
             default:
@@ -432,7 +499,7 @@ export const AIWizardModal: React.FC<Props> = ({
                                 disabled={isLoading || appliedConfigs.length === 0}
                             >
                                 <Check className="w-4 h-4 mr-1" />
-                                Done
+                                {isLoading ? 'Loading...' : 'Done'}
                             </Button>
                         </div>
                     </>
@@ -489,8 +556,13 @@ export const AIWizardModal: React.FC<Props> = ({
                         </div>
                     </div>
 
-                    {/* Content */}
-                    <div className="flex-1 min-h-[300px] overflow-y-auto py-4">
+                    {/* Content. `min-h-0` is required so the flex-1 child can
+                        actually shrink below its intrinsic content size and let
+                        `overflow-y-auto` kick in — without it, a long
+                        suggestions list grows the inner container past the
+                        dialog's `max-h-[90vh]` and the bottom gets clipped by
+                        the dialog's `overflow-hidden`. */}
+                    <div className="flex-1 min-h-0 overflow-y-auto py-4">
                         {renderStepContent()}
                     </div>
 

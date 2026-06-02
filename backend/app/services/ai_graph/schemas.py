@@ -5,9 +5,61 @@ These schemas enforce comprehensive validation rules to ensure
 that generated suggestions are correct and usable.
 """
 
+import re
 from typing import Literal, Optional, Any, get_args
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing_extensions import TypedDict
+
+
+# Workflow stage identifiers. Used as the discriminator field on
+# ``SuggestionGraphState`` and as routing keys in ``graph.create_suggestion_graph``.
+# Promoted from bare ``str`` so a typo in a router function fails the
+# type-checker rather than silently routing to END.
+WorkflowStage = Literal[
+    "generate",
+    "agent_loop",
+    "validate_schema",
+    "validate_columns",
+    "validate_formulas",
+    "correct",
+    "retry",
+    "done",
+]
+
+# Reasoning effort accepted across providers. Empty string represents
+# "no explicit effort" — kept for the TypedDict default-empty path.
+ReasoningEffort = Literal["low", "medium", "high", ""]
+
+
+# Word-boundary patterns for the title/reasoning "no AI-talk" validators.
+# These rules used to be plain substring matches, which produced real
+# false-positives against industrial vocabulary — "Cracker Campaign KPI
+# Summary" was rejected because "campa**ai**gn" contains "ai". The substrings
+# in the values below are the actual intent.
+#
+# - 'ai' is matched as a *whole word* only (`\bai\b`). A prefix match would
+#   wrongly trigger on real titles like "Air Pressure", "Aircommendation",
+#   "Aim Profile", "Aid Distribution".
+# - The other terms use a prefix match (`\b<word>\w*`) so derived forms are
+#   still caught: "Generated"/"Generation", "Suggestion"/"Suggestions",
+#   "Recommended"/"Recommendation".
+_FORBIDDEN_TITLE_PATTERNS: dict[str, re.Pattern] = {
+    'ai': re.compile(r'\bai\b', re.IGNORECASE),
+    'suggested': re.compile(r'\bsuggest\w*', re.IGNORECASE),
+    'generated': re.compile(r'\bgenerat\w*', re.IGNORECASE),
+    'recommend': re.compile(r'\brecommend\w*', re.IGNORECASE),
+}
+
+# Reasoning-text rules use multi-word phrases. Word boundaries on both sides
+# prevent "the airfield" from triggering "the ai".
+_FORBIDDEN_REASONING_PHRASES = (
+    'i think', 'i suggest', 'i recommend', 'the ai', 'this ai',
+    'my analysis', 'i believe', 'in my opinion',
+)
+_FORBIDDEN_REASONING_PATTERNS = {
+    p: re.compile(r'\b' + re.escape(p) + r'\b', re.IGNORECASE)
+    for p in _FORBIDDEN_REASONING_PHRASES
+}
 
 
 # ============= Visualization Types =============
@@ -173,6 +225,31 @@ class KPIMetricSuggestion(BaseModel):
         return self
 
 
+# ============= Reference Line Suggestion =============
+
+class ReferenceLineSuggestion(BaseModel):
+    """A single horizontal reference line proposed by the AI.
+
+    Reference lines mark significant values on the y-axis (spec/safety
+    limits, targets, statistical landmarks like medians or thresholds).
+    Converted server-side into the app's ``Threshold`` model, with id,
+    color, and shaded-area defaults applied during conversion.
+
+    Attributes:
+        label: Short legend label for the line (e.g. "Upper Spec Limit",
+            "Target 95%", "Mean").
+        value: Numeric y-value where the line is drawn.
+        axis: Which y-axis the value belongs to — "left" (primary, default)
+            or "right" (secondary). Must agree with the unit of the value.
+    """
+    label: str = Field(..., min_length=1, max_length=80, description="Short legend label")
+    value: float = Field(..., description="Numeric y-value where the line is drawn")
+    axis: Literal["left", "right"] = Field(
+        default="left",
+        description="Which y-axis the value is on: 'left' (primary) or 'right' (secondary)",
+    )
+
+
 # ============= Additional Config =============
 
 class AdditionalConfig(BaseModel):
@@ -180,7 +257,8 @@ class AdditionalConfig(BaseModel):
 
     Provides optional settings that modify how specific visualization
     types are rendered, including regression overlays, PCA parameters,
-    confidence intervals, and custom formula expressions.
+    confidence intervals, custom formula expressions, secondary-axis
+    assignments, and reference lines.
 
     Attributes:
         add_regression: If True, add a regression trend line to the plot.
@@ -188,6 +266,14 @@ class AdditionalConfig(BaseModel):
         pca_components: Number of principal components to compute (2-10).
         show_confidence_interval: If True, show confidence bands on regression.
         formula: FormulaConfig for formula-type visualizations.
+        kpi_metrics: KPI cards for kpi viz type.
+        series_axis_assignments: Optional map of ``y_axes`` column name →
+            "left" or "right". Series not listed default to "left". Use
+            "right" when a series has a different unit or scale than the
+            others (e.g. plotting Temperature °C against Pressure bar).
+        reference_lines: Optional list of horizontal reference lines.
+            Useful for spec/safety limits, targets, alarm thresholds, or
+            statistical landmarks discovered during inspection.
 
     Example:
         >>> config = AdditionalConfig(
@@ -204,6 +290,21 @@ class AdditionalConfig(BaseModel):
     kpi_metrics: Optional[list[KPIMetricSuggestion]] = Field(
         default=None,
         description="KPI metrics for kpi viz type. Each entry becomes one card.",
+    )
+    series_axis_assignments: Optional[dict[str, Literal["left", "right"]]] = Field(
+        default=None,
+        description=(
+            "Map of y_axes column name to 'left' or 'right'. Use 'right' "
+            "for series whose unit/scale differs from the rest. Series not "
+            "listed default to 'left'."
+        ),
+    )
+    reference_lines: Optional[list[ReferenceLineSuggestion]] = Field(
+        default=None,
+        description=(
+            "Horizontal reference lines for spec/safety limits, targets, "
+            "or statistical landmarks. Each line has a label, value, and axis."
+        ),
     )
 
     @field_validator('formula', mode='before')
@@ -319,6 +420,15 @@ class VisualizationSuggestion(BaseModel):
         max_length=100,
         description="Y-axis label with units (e.g., 'Temperature (°C)')"
     )
+    y2_label: str = Field(
+        default="",
+        max_length=100,
+        description=(
+            "Secondary (right) Y-axis label with units. Only meaningful when "
+            "additional_config.series_axis_assignments routes at least one "
+            "series to 'right'. Empty otherwise."
+        ),
+    )
     plot_type: SeriesPlotType = Field(
         default="line",
         description="Plot type for universal charts: line, scatter, step, bar, or line+scatter"
@@ -373,10 +483,8 @@ class VisualizationSuggestion(BaseModel):
         Raises:
             ValueError: If title contains forbidden AI-related terms.
         """
-        forbidden = ['ai', 'suggested', 'generated', 'recommend']
-        lower_v = v.lower()
-        for word in forbidden:
-            if word in lower_v:
+        for word, pattern in _FORBIDDEN_TITLE_PATTERNS.items():
+            if pattern.search(v):
                 raise ValueError(f"Title should not mention '{word}' - be professional")
         return v
 
@@ -398,11 +506,8 @@ class VisualizationSuggestion(BaseModel):
         Raises:
             ValueError: If reasoning contains unprofessional phrases.
         """
-        forbidden = ['i think', 'i suggest', 'i recommend', 'the ai', 'this ai',
-                     'my analysis', 'i believe', 'in my opinion']
-        lower_v = v.lower()
-        for phrase in forbidden:
-            if phrase in lower_v:
+        for phrase, pattern in _FORBIDDEN_REASONING_PATTERNS.items():
+            if pattern.search(v):
                 raise ValueError(f"Reasoning should be professional - avoid '{phrase}'")
         return v
     
@@ -449,34 +554,33 @@ class VisualizationSuggestion(BaseModel):
             # universal, area, hist, box require at least 1 y_axis
             raise ValueError(f"{self.viz_type} requires at least 1 variable in y_axes")
 
+        # Cross-validate series_axis_assignments: every key must reference a
+        # column actually listed in y_axes, otherwise the assignment is a
+        # silent no-op at conversion time. Also, secondary-axis routing only
+        # makes sense for chart types with per-series rendering.
+        cfg = self.additional_config
+        if cfg and cfg.series_axis_assignments:
+            invalid = [k for k in cfg.series_axis_assignments if k not in self.y_axes]
+            if invalid:
+                raise ValueError(
+                    f"series_axis_assignments references columns not in y_axes: {invalid}"
+                )
+            if self.viz_type not in ('universal', 'area', 'regression', 'formula', 'fft'):
+                raise ValueError(
+                    f"series_axis_assignments is not supported for viz_type '{self.viz_type}'"
+                )
+
+        # Reference lines only make sense on plot types with a real y-axis.
+        # PCA, correlation, root_cause, and KPI render either a matrix, a
+        # scatter on PC space, or cards — a horizontal reference line has
+        # no defined meaning there.
+        if cfg and cfg.reference_lines:
+            if self.viz_type in ('pca', 'correlation', 'root_cause', 'kpi'):
+                raise ValueError(
+                    f"reference_lines is not supported for viz_type '{self.viz_type}'"
+                )
+
         return self
-
-
-# ============= Suggestion List Wrapper =============
-
-class SuggestionList(BaseModel):
-    """Container for multiple visualization suggestions with aggregate validation.
-
-    Wraps a list of validated suggestions along with overall validation
-    status and any errors that occurred during batch processing.
-
-    Attributes:
-        suggestions: List of validated VisualizationSuggestion objects.
-        validation_passed: True if all suggestions passed validation.
-        errors: List of error messages from failed validations.
-
-    Example:
-        >>> result = SuggestionList(
-        ...     suggestions=[suggestion1, suggestion2],
-        ...     validation_passed=True
-        ... )
-    """
-    suggestions: list[VisualizationSuggestion] = Field(
-        default_factory=list,
-        description="List of visualization suggestions"
-    )
-    validation_passed: bool = Field(default=True)
-    errors: list[str] = Field(default_factory=list)
 
 
 # ============= Graph State =============
@@ -524,7 +628,7 @@ class SuggestionGraphState(TypedDict, total=False):
     api_key: str
     provider: str
     model: str
-    effort: str  # Reasoning effort: "low", "medium", "high", or ""
+    effort: ReasoningEffort
 
     # Processing
     valid_column_names: set[str]
@@ -541,12 +645,31 @@ class SuggestionGraphState(TypedDict, total=False):
     # Control
     retry_count: int
     max_retries: int
-    current_stage: str  # "generate", "validate_schema", "validate_columns", "validate_formulas", "correct", "done"
+    current_stage: WorkflowStage
 
     # Observability (populated by graph nodes; drained by run_suggestion_workflow)
     # Each entry is {input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens}
     # — numeric only, no prompt text.
     usage_records: list[dict]
+
+    # Tool-use mode (privacy OFF). When dataset_access is True the workflow
+    # routes through agent_loop_node instead of generate_suggestions_node;
+    # the LLM may issue tool calls against the bound DataFrame inspection
+    # tools and iterate until producing the final suggestions JSON.
+    dataset_access: bool
+    dataframe: Any  # pd.DataFrame; Any to avoid pulling pandas into this module
+    tool_iterations: int  # number of agent↔tool round trips taken
+    tool_calls_made: int  # total individual tool calls executed (telemetry)
+    # Per-request override for the agent-loop iteration cap. When omitted,
+    # the workflow falls back to the module-level default. Surfaced in the
+    # API/UI so users can trade latency for thoroughness on slow providers.
+    max_tool_iterations: int
+    # Per-request override for the per-chunk idle timeout (seconds) wrapping
+    # the streaming ainvoke. Resets on every chunk, so a long-but-progressing
+    # response is never killed; only a true stall fires. Optional — when
+    # omitted, ainvoke_timeout_s() picks the right default based on effort
+    # and tool binding.
+    idle_timeout_s: float
 
 
 # ============= Column Metadata =============

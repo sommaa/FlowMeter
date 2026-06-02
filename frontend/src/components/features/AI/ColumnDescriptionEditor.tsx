@@ -161,8 +161,17 @@ export const ColumnDescriptionEditor: React.FC<Props> = ({
         );
     }
 
-    const totalColumns = currentDataset.column_names.length;
-    const filledColumns = currentDataset.column_names.filter(
+    // Hide reconciled (`_rec` suffix) columns. They're cleaned-up duplicates
+    // of their parent variables (added by the data-reconciliation flow), so
+    // asking the user to describe them is redundant — they'd just paste the
+    // parent's description. The backend applies the same filter when
+    // building the AI's column list. Same convention as templates.py:178.
+    const describableColumns = currentDataset.column_names.filter(
+        col => !col.endsWith('_rec')
+    );
+
+    const totalColumns = describableColumns.length;
+    const filledColumns = describableColumns.filter(
         col => columnDescriptions[col]?.trim()
     ).length;
     const progress = totalColumns > 0 ? (filledColumns / totalColumns) * 100 : 0;
@@ -233,7 +242,7 @@ export const ColumnDescriptionEditor: React.FC<Props> = ({
             {/* Column List - Scrollable */}
             <div className="max-h-[280px] overflow-y-auto border rounded-lg">
                 <div className="space-y-1 p-2">
-                    {currentDataset.column_names.map(col => {
+                    {describableColumns.map(col => {
                         const isFilled = !!columnDescriptions[col]?.trim();
                         const dataType = getDataType(col);
 

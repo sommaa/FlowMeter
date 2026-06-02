@@ -25,7 +25,7 @@
  * @module components/features/AI/AISuggestionsPanel
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/common';
 import {
@@ -203,6 +203,19 @@ export const AISuggestionsPanel: React.FC<Props> = ({
 }) => {
     const [expandedId, setExpandedId] = useState<string | null>(null);
 
+    // Defensive console.warn once per render when an unknown error class
+    // arrives — gives developers a noisy signal that a new backend class
+    // value needs a new copy entry in ``_ERROR_COPY``.
+    useEffect(() => {
+        if (errorClass && !(errorClass in _ERROR_COPY)) {
+            console.warn(
+                '[AISuggestionsPanel] Unknown errorClass %o — falling back to "unknown" copy. ' +
+                'Add a new entry to _ERROR_COPY when introducing a new AIErrorClass value.',
+                errorClass,
+            );
+        }
+    }, [errorClass]);
+
     // Loading state
     if (isLoading) {
         return (
@@ -291,8 +304,12 @@ export const AISuggestionsPanel: React.FC<Props> = ({
 
     return (
         <div className="space-y-4">
-            {/* Header */}
-            <div className="flex items-center justify-between">
+            {/* Header — sticky inside the scrollable wizard pane so "Apply All"
+                stays reachable on long suggestion lists. ``-top-4`` matches
+                the parent's ``py-4`` so the header pins flush with the dialog
+                content edge. ``bg-background/95 backdrop-blur`` keeps it
+                readable when cards scroll behind it. */}
+            <div className="sticky -top-4 z-10 -mx-1 px-1 pt-2 pb-2 bg-background/95 backdrop-blur flex items-center justify-between border-b">
                 <h3 className="font-semibold flex items-center gap-2">
                     <Sparkles className="w-4 h-4 text-primary" />
                     AI Suggestions ({suggestions.length})
@@ -357,6 +374,12 @@ export const AISuggestionsPanel: React.FC<Props> = ({
                                                         : "bg-muted text-muted-foreground/70"
                                             )}
                                         >
+                                            {/* HIGH/MED/LOW label is the WCAG 1.4.1 fallback
+                                                for color-blind users; the colored pill alone
+                                                isn't enough to convey confidence tier. */}
+                                            {suggestion.confidence >= 0.8 ? 'HIGH' :
+                                                suggestion.confidence >= 0.5 ? 'MED' : 'LOW'}
+                                            {' · '}
                                             {Math.round(suggestion.confidence * 100)}% match
                                         </span>
                                     </div>

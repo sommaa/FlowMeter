@@ -12,8 +12,8 @@ from app.services.ai_graph.schemas import (
     ValidationResult,
     FormulaConfig,
     AdditionalConfig,
+    ReferenceLineSuggestion,
     VisualizationSuggestion,
-    SuggestionList,
     ColumnMetadata,
 )
 
@@ -315,6 +315,32 @@ class TestVisualizationSuggestion:
         with pytest.raises(PydanticValidationError, match="recommend"):
             _make_suggestion(title="Recommended Visualization for Flow")
 
+    @pytest.mark.parametrize("title", [
+        # Real false-positives observed against the substring rule. Each of
+        # these contains the literal substring "ai" inside an unrelated
+        # word — the word-boundary regex must allow them through.
+        "Cracker Campaign KPI Summary",
+        "Maintenance Window Overview",
+        "Captain Crash Analysis",
+        "Strain Gauge Profile",
+        "Raise Detection Heatmap",
+        # Real industrial vocabulary that starts with "ai" but is not AI.
+        "Air Pressure Profile",
+        "Aim Tracking Overview",
+        "Aid Distribution Pattern",
+    ])
+    def test_title_substring_words_are_not_rejected(self, title):
+        # Should construct without raising — these used to be rejected by the
+        # naïve `'ai' in title.lower()` check.
+        s = _make_suggestion(title=title)
+        assert s.title == title
+
+    def test_title_with_ai_hyphenated_still_caught(self):
+        # The whole-word rule still catches hyphenated forms because "-" is a
+        # word boundary. This is the canonical case we want to keep blocking.
+        with pytest.raises(PydanticValidationError, match="ai"):
+            _make_suggestion(title="An AI-driven analysis of data")
+
     # --- Description validation ---
 
     def test_description_too_short_raises(self):
@@ -584,38 +610,6 @@ class TestVisualizationSuggestionVizTypeRequirements:
         assert s.y_axes == []
 
 
-# ============= SuggestionList =============
-
-class TestSuggestionList:
-    """Tests for the SuggestionList wrapper model."""
-
-    def test_empty_defaults(self):
-        sl = SuggestionList()
-        assert sl.suggestions == []
-        assert sl.validation_passed is True
-        assert sl.errors == []
-
-    def test_with_single_suggestion(self):
-        s = _make_suggestion()
-        sl = SuggestionList(suggestions=[s])
-        assert len(sl.suggestions) == 1
-        assert sl.suggestions[0].title == s.title
-
-    def test_with_multiple_suggestions(self):
-        s1 = _make_suggestion(title="Pressure Over Time Chart")
-        s2 = _make_suggestion(title="Flow Rate Distribution Plot")
-        sl = SuggestionList(suggestions=[s1, s2])
-        assert len(sl.suggestions) == 2
-
-    def test_with_errors(self):
-        sl = SuggestionList(
-            validation_passed=False,
-            errors=["Title too short", "Missing x_axis"],
-        )
-        assert sl.validation_passed is False
-        assert len(sl.errors) == 2
-
-
 # ============= ColumnMetadata =============
 
 class TestColumnMetadata:
@@ -771,3 +765,140 @@ class TestKPIVisualizationSuggestion:
         )
         assert s.viz_type == "kpi"
         assert s.additional_config.kpi_metrics[0].column == "power"
+
+
+class TestReferenceLineSuggestion:
+    """Direct tests on the ReferenceLineSuggestion model itself."""
+
+    def test_minimal_construction(self):
+        rl = ReferenceLineSuggestion(label="Spec Limit", value=450.0)
+        assert rl.label == "Spec Limit"
+        assert rl.value == 450.0
+        assert rl.axis == "left"  # default
+
+    def test_axis_right(self):
+        rl = ReferenceLineSuggestion(label="Target 95%", value=95.0, axis="right")
+        assert rl.axis == "right"
+
+    def test_invalid_axis_value_raises(self):
+        with pytest.raises(PydanticValidationError):
+            ReferenceLineSuggestion(label="X", value=1.0, axis="middle")
+
+    def test_empty_label_raises(self):
+        with pytest.raises(PydanticValidationError):
+            ReferenceLineSuggestion(label="", value=1.0)
+
+
+class TestSeriesAxisAssignments:
+    """Cross-validation between ``series_axis_assignments`` and ``y_axes``.
+
+    The map's keys must reference real y_axes columns, and the feature is
+    only meaningful for plot types that render per-series — types like
+    ``hist``/``box`` aggregate before plotting and have no concept of a
+    per-series y-axis routing.
+    """
+
+    def test_assignment_to_unknown_column_raises(self):
+        # 'temperature' is in y_axes but the assignment names 'pressure'
+        # which doesn't exist — would silently no-op at conversion time.
+        with pytest.raises(PydanticValidationError, match="series_axis_assignments"):
+            _make_suggestion(
+                additional_config={
+                    "series_axis_assignments": {"pressure": "right"},
+                },
+            )
+
+    def test_assignment_to_real_column_passes(self):
+        s = _make_suggestion(
+            y_axes=["temperature", "pressure"],
+            additional_config={
+                "series_axis_assignments": {"pressure": "right"},
+            },
+        )
+        assert s.additional_config.series_axis_assignments == {"pressure": "right"}
+
+    def test_assignment_rejects_invalid_side(self):
+        with pytest.raises(PydanticValidationError):
+            _make_suggestion(
+                additional_config={
+                    "series_axis_assignments": {"temperature": "middle"},
+                },
+            )
+
+    @pytest.mark.parametrize("viz_type,extra", [
+        ("hist", {"y_axes": ["temperature"]}),
+        ("box", {"y_axes": ["temperature"]}),
+        ("pca", {"y_axes": ["a", "b", "c"]}),
+        ("correlation", {"x_axis": "", "y_axes": ["a", "b", "c"]}),
+        ("root_cause", {"x_axis": "", "y_axes": ["a", "b", "c"]}),
+    ])
+    def test_assignment_rejected_on_unsupported_viz_types(self, viz_type, extra):
+        kwargs = {
+            "viz_type": viz_type,
+            "additional_config": {
+                "series_axis_assignments": {extra["y_axes"][0]: "right"},
+            },
+        }
+        kwargs.update(extra)
+        with pytest.raises(PydanticValidationError, match="series_axis_assignments"):
+            _make_suggestion(**kwargs)
+
+    def test_assignment_allowed_on_universal(self):
+        s = _make_suggestion(
+            viz_type="universal",
+            y_axes=["temperature", "efficiency"],
+            additional_config={
+                "series_axis_assignments": {"efficiency": "right"},
+            },
+        )
+        assert s.additional_config.series_axis_assignments["efficiency"] == "right"
+
+
+class TestReferenceLinesValidation:
+    """Cross-validation: reference lines only apply to plots with a y-axis."""
+
+    def test_reference_lines_pass_on_universal(self):
+        s = _make_suggestion(
+            additional_config={
+                "reference_lines": [
+                    {"label": "Upper Spec (450°C)", "value": 450.0, "axis": "left"},
+                    {"label": "Mean", "value": 300.0},
+                ],
+            },
+        )
+        assert len(s.additional_config.reference_lines) == 2
+
+    @pytest.mark.parametrize("viz_type,extra", [
+        ("pca", {"y_axes": ["a", "b", "c"]}),
+        ("correlation", {"x_axis": "", "y_axes": ["a", "b", "c"]}),
+        ("root_cause", {"x_axis": "", "y_axes": ["a", "b", "c"]}),
+        ("kpi", {"x_axis": "", "y_axes": [], "additional_config": {
+            "kpi_metrics": [{"label": "Sum", "operation": "sum", "column": "power"}],
+            "reference_lines": [{"label": "X", "value": 1.0}],
+        }}),
+    ])
+    def test_reference_lines_rejected_on_unsupported_viz_types(self, viz_type, extra):
+        kwargs = {"viz_type": viz_type}
+        kwargs.update(extra)
+        if "additional_config" not in kwargs:
+            kwargs["additional_config"] = {
+                "reference_lines": [{"label": "X", "value": 1.0}],
+            }
+        with pytest.raises(PydanticValidationError, match="reference_lines"):
+            _make_suggestion(**kwargs)
+
+
+class TestY2Label:
+    """y2_label is plain text; default empty, max 100 chars."""
+
+    def test_default_empty(self):
+        s = _make_suggestion()
+        assert s.y2_label == ""
+
+    def test_can_be_set(self):
+        s = _make_suggestion(y2_label="Pressure (bar)")
+        assert s.y2_label == "Pressure (bar)"
+
+    def test_too_long_raises(self):
+        with pytest.raises(PydanticValidationError):
+            _make_suggestion(y2_label="x" * 101)

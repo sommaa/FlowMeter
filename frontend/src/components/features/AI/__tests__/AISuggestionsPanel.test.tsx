@@ -96,12 +96,15 @@ describe('AISuggestionsPanel', () => {
         expect(screen.getByText('Pressure Chart')).toBeTruthy();
     });
 
-    it('displays confidence badge with correct percentage', () => {
+    it('displays confidence badge with correct percentage and tier label', () => {
         const suggestions = [makeSuggestion({ confidence: 0.92 })];
         render(
             <AISuggestionsPanel {...defaultProps} suggestions={suggestions} />
         );
-        expect(screen.getByText('92% match')).toBeTruthy();
+        // Badge dual-encodes color with a HIGH/MED/LOW tier text label
+        // (WCAG 1.4.1). The percentage is shown alongside, separated by `·`.
+        const badge = screen.getByText(/HIGH/);
+        expect(badge.textContent).toContain('92% match');
     });
 
     it('calls onApply when individual apply button is clicked', () => {
@@ -328,5 +331,31 @@ describe('AISuggestionsPanel', () => {
             );
             expect(screen.queryByText('Open AI Settings')).toBeNull();
         });
+
+        // Parameterized over every AIErrorClass — guarantees each enum
+        // value has distinct, non-empty copy. Catches the regression
+        // where a new error_class lands on the backend but the frontend
+        // forgets to add an entry to _ERROR_COPY.
+        const errorClassCopy: Array<[string, string]> = [
+            ['invalid_key', 'API Key Rejected'],
+            ['rate_limit', 'Provider Rate Limit Reached'],
+            ['quota_exceeded', 'Provider Quota Exceeded'],
+            ['timeout', 'Provider Took Too Long'],
+            ['provider_unavailable', 'Provider Unavailable'],
+            ['invalid_output', 'Model Output Invalid'],
+            ['unknown', 'AI Suggestion Failed'],
+        ];
+        for (const [klass, title] of errorClassCopy) {
+            it(`renders distinct title for AIErrorClass "${klass}"`, () => {
+                render(
+                    <AISuggestionsPanel
+                        {...defaultProps}
+                        error="any message"
+                        errorClass={klass as never}
+                    />
+                );
+                expect(screen.getByText(title)).toBeTruthy();
+            });
+        }
     });
 });

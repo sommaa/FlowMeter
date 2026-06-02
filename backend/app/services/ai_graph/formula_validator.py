@@ -9,44 +9,14 @@ Provides comprehensive validation including:
 """
 
 import ast
-import os
-import re
 import logging
-from typing import Optional
+import re
 from difflib import get_close_matches
 
-from .schemas import ValidationResult, FormulaConfig
+from ._debug import debug_log as _debug_log
+from .schemas import ValidationResult
 
 logger = logging.getLogger(__name__)
-
-
-def _get_debug_level() -> int:
-    """Retrieve the debug verbosity level from environment variable.
-
-    Reads the AI_DEBUG_LEVEL environment variable to control logging verbosity.
-    Higher values enable more detailed debug output.
-
-    Returns:
-        Integer debug level (0 = disabled, 1 = minimal, 2 = verbose, 3 = trace).
-        Returns 0 if the environment variable is not set or invalid.
-    """
-    try:
-        return int(os.environ.get("AI_DEBUG_LEVEL", "0"))
-    except ValueError:
-        return 0
-
-
-def _debug_log(msg: str, min_level: int = 2) -> None:
-    """Log a debug message if the current debug level meets the threshold.
-
-    Args:
-        msg: The debug message to log.
-        min_level: Minimum debug level required to emit this message.
-            Level 2 is used for standard validation steps,
-            level 3 for detailed trace information.
-    """
-    if _get_debug_level() >= min_level:
-        logger.info(f"[AI-DEBUG] {msg}")
 
 
 # ============= Safe Functions Whitelist =============
@@ -508,7 +478,7 @@ def validate_formula(
     # 1. Syntax check
     
     is_valid, error = validate_syntax(fixed)
-    _debug_log(f"       Step 1 - Syntax check: {'✓ PASS' if is_valid else '✗ FAIL'}", min_level=2)
+    _debug_log(f"       Step 1 - Syntax check: {'[OK] PASS' if is_valid else '[FAIL]'}", min_level=2)
     if not is_valid:
         _debug_log(f"         Error: {error}", min_level=2)
         result.add_error("expression", f"Syntax error: {error}", 
@@ -517,7 +487,7 @@ def validate_formula(
     
     # 2. Safety check
     is_safe, error = validate_safety(fixed)
-    _debug_log(f"       Step 2 - Safety check: {'✓ PASS' if is_safe else '✗ FAIL'}", min_level=2)
+    _debug_log(f"       Step 2 - Safety check: {'[OK] PASS' if is_safe else '[FAIL]'}", min_level=2)
     if not is_safe:
         _debug_log(f"         Error: {error}", min_level=2)
         result.add_error("expression", f"Safety error: {error}",
@@ -526,7 +496,7 @@ def validate_formula(
     
     # 3. Function call validation
     all_safe, unsafe_funcs = validate_function_calls(fixed)
-    _debug_log(f"       Step 3 - Function calls: {'✓ PASS' if all_safe else '✗ FAIL'}", min_level=2)
+    _debug_log(f"       Step 3 - Function calls: {'[OK] PASS' if all_safe else '[FAIL]'}", min_level=2)
     if not all_safe:
         _debug_log(f"         Unsafe functions: {unsafe_funcs}", min_level=2)
         result.add_error("expression", 
@@ -535,7 +505,7 @@ def validate_formula(
     
     # 4. Column validation
     cols_valid, invalid_cols = validate_column_references(fixed, valid_columns)
-    _debug_log(f"       Step 4 - Column references: {'✓ PASS' if cols_valid else '✗ FAIL'}", min_level=2)
+    _debug_log(f"       Step 4 - Column references: {'[OK] PASS' if cols_valid else '[FAIL]'}", min_level=2)
     if not cols_valid:
         _debug_log(f"         Invalid columns: {[col for col, _ in invalid_cols]}", min_level=2)
         # Check if we can auto-fix using suggestions (e.g., from wildcard patterns)
@@ -557,7 +527,7 @@ def validate_formula(
     
     # 5. Result assignment check
     has_result, error = validate_result_assignment(fixed)
-    _debug_log(f"       Step 5 - Result assignment: {'✓ PASS' if has_result else '✗ FAIL'}", min_level=2)
+    _debug_log(f"       Step 5 - Result assignment: {'[OK] PASS' if has_result else '[FAIL]'}", min_level=2)
     if not has_result:
         if auto_fix:
             fixed = add_result_assignment(fixed)
@@ -565,7 +535,7 @@ def validate_formula(
         else:
             result.add_error("expression", error, "Add 'result = ' at the beginning")
     
-    _debug_log(f"       Validation complete: {'✓ VALID' if result.is_valid else '✗ INVALID'}", min_level=2)
+    _debug_log(f"       Validation complete: {'[OK] VALID' if result.is_valid else '[FAIL] INVALID'}", min_level=2)
     if fixed != expression:
         _debug_log(f"       Final formula: {fixed[:80]}{'...' if len(fixed) > 80 else ''}", min_level=2)
     

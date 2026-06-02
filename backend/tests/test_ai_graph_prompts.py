@@ -58,11 +58,40 @@ class TestPromptRenderingByteIdentical:
         return hashlib.sha256(text.encode()).hexdigest()[:16]
 
     def test_system_prompt_byte_identical(self):
+        # Privacy ON (default). Re-pinned after adding the "Output Shape"
+        # section near the top of the system prompt with a complete JSON
+        # object example. Added in response to a production failure where
+        # Gemini 3.1 emitted `["Title1","Title2","Title3"]` (bare strings)
+        # instead of suggestion objects — the prompt previously only
+        # described field NAMES without anchoring a concrete shape, and the
+        # model shape-degraded after a long tool-use context.
         out = get_system_prompt(reasoning_max_chars=800)
-        assert len(out) == 10382
-        assert self._sha(out) == "ec01b87aceb95a54"
+        assert len(out) == 14293
+        assert self._sha(out) == "6a30f2ddf212577e"
+
+    def test_system_prompt_byte_identical_with_dataset_access(self):
+        # Privacy OFF: the block expands and adds the tool-use protocol +
+        # the full tool list. Pinned so future drift in the tool-use
+        # instructions is loud. The protocol got an explicit "you MUST
+        # inspect the data before producing suggestions" preamble after we
+        # observed Claude skipping all tools and going straight to JSON.
+        # Most recent additions: anti-patterns block calling out duplicate
+        # schema()/null_counts() calls, head+sample overlap, describe on
+        # datetime, and groupby_agg on a timestamp column — pinned after
+        # observing Gemini Flash burn through 6 tool calls in iter 1
+        # repeating these mistakes. Updated again with the "Output Shape"
+        # JSON example anchor (see test above).
+        out = get_system_prompt(reasoning_max_chars=800, dataset_access=True)
+        assert len(out) == 18054
+        assert self._sha(out) == "50842e8be1787ebf"
 
     def test_user_prompt_byte_identical(self):
+        # Re-pinned after restructuring the field list into a "Required
+        # Fields" section and appending a final "Output Shape" reminder
+        # with a complete `[{...}]` example as the LAST thing in the user
+        # prompt. The final reminder is structural — it makes the target
+        # shape the freshest item in context before the model starts
+        # making tool calls or emitting suggestions.
         out = get_user_prompt(
             columns=self._SAMPLE_COLUMNS,
             guidance_text="analyze power vs temperature with brackets {x} and quotes",
@@ -70,8 +99,8 @@ class TestPromptRenderingByteIdentical:
             existing_visualizations=["Power Over Time"],
             max_suggestions=3,
         )
-        assert len(out) == 2436
-        assert self._sha(out) == "e0591d96d51ffaa0"
+        assert len(out) == 3769
+        assert self._sha(out) == "6e13e7b38cee1d69"
 
     def test_correction_prompt_byte_identical(self):
         out = get_correction_prompt(

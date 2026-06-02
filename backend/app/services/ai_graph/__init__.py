@@ -7,7 +7,6 @@ and correcting AI visualization suggestions.
 
 from .schemas import (
     VisualizationSuggestion,
-    SuggestionList,
     ValidationResult,
     SuggestionGraphState,
     ALL_VIZ_TYPES,
@@ -29,7 +28,6 @@ from .errors import (
 
 __all__ = [
     "VisualizationSuggestion",
-    "SuggestionList",
     "ValidationResult",
     "SuggestionGraphState",
     "ALL_VIZ_TYPES",

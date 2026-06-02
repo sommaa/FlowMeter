@@ -222,4 +222,40 @@ describe('AIWizardModal', () => {
             expect(screen.getByText('Done')).toBeTruthy();
         });
     });
+
+    it('aborts the in-flight suggest call when the modal closes mid-flight', async () => {
+        // suggest() stays pending forever — the test only cares whether the
+        // AbortSignal was triggered when the modal closes.
+        let capturedSignal: AbortSignal | undefined;
+        vi.mocked(aiApi.suggest).mockImplementation(
+            (_req: any, signal?: AbortSignal) => {
+                capturedSignal = signal;
+                return new Promise(() => { /* never resolves */ });
+            }
+        );
+
+        const onClose = vi.fn();
+        const { rerender } = render(
+            <AIWizardModal isOpen={true} onClose={onClose} onComplete={vi.fn()} />
+        );
+
+        fireEvent.click(screen.getByText('Continue'));
+        fireEvent.click(screen.getByTestId('settings-continue'));
+
+        // Wait for suggest() to have been called with a signal.
+        await waitFor(() => {
+            expect(aiApi.suggest).toHaveBeenCalled();
+            expect(capturedSignal).toBeDefined();
+        });
+
+        // Modal closes — re-render with isOpen=false. The effect that
+        // detects the open→closed transition must abort the signal.
+        rerender(
+            <AIWizardModal isOpen={false} onClose={onClose} onComplete={vi.fn()} />
+        );
+
+        await waitFor(() => {
+            expect(capturedSignal!.aborted).toBe(true);
+        });
+    });
 });

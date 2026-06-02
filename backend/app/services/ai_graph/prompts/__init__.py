@@ -33,7 +33,7 @@ _env = Environment(
 )
 
 
-def get_system_prompt(reasoning_max_chars: int = 800) -> str:
+def get_system_prompt(reasoning_max_chars: int = 800, dataset_access: bool = False) -> str:
     """Build the comprehensive system prompt for AI visualization suggestions.
 
     Constructs a detailed system prompt that instructs the AI model on how
@@ -45,11 +45,19 @@ def get_system_prompt(reasoning_max_chars: int = 800) -> str:
     `schemas.VisualizationSuggestion`. Telling the model a higher cap than
     the schema enforces just churns the schema-correction loop.
 
+    Args:
+        reasoning_max_chars: Cap on the ``reasoning`` field length advertised
+            to the model (matches schema validation).
+        dataset_access: When True, includes a tool-use instruction block
+            telling the model it may call dataset-inspection tools before
+            producing the final suggestions JSON.
+
     Returns:
         The complete system prompt string to be used with the LLM.
     """
     return _env.get_template("system.j2").render(
         reasoning_max_chars=reasoning_max_chars,
+        dataset_access=dataset_access,
     )
 
 

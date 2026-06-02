@@ -417,6 +417,20 @@ export class AIError extends Error {
   }
 }
 
+// Allowed `AIErrorClass` values. Mirrors backend `AIErrorClass` enum.
+// Used to validate the discriminator before indexing into UI copy maps
+// (e.g. `_ERROR_COPY[errorClass]`), since a future/unknown class value
+// would otherwise crash the panel with an undefined-deref.
+const _AI_ERROR_CLASS_VALUES: ReadonlySet<AIErrorClass> = new Set<AIErrorClass>([
+  'invalid_key',
+  'rate_limit',
+  'quota_exceeded',
+  'timeout',
+  'provider_unavailable',
+  'invalid_output',
+  'unknown',
+]);
+
 /**
  * Inspect an error thrown from an `aiApi` call (already wrapped by the axios
  * interceptor into a plain `Error`). If the original response carried an
@@ -432,18 +446,47 @@ function _rethrowAsAIError(err: unknown): never {
   // typed AIError so call sites don't need to know about axios internals.
   const maybeAI = (err as { __aiDetail?: AIErrorDetail; __status?: number });
   if (maybeAI.__aiDetail && maybeAI.__aiDetail.error_class) {
-    throw new AIError(maybeAI.__aiDetail, maybeAI.__status);
+    // Defensive: if the backend ships a new `error_class` value before the
+    // frontend learns about it, coerce to `'unknown'` so consumer code
+    // (which indexes `_ERROR_COPY[errorClass]`) never blows up.
+    const detail = maybeAI.__aiDetail;
+    if (!_AI_ERROR_CLASS_VALUES.has(detail.error_class)) {
+      console.warn(
+        '[AI] Unknown error_class %o received from backend; falling back to "unknown".',
+        detail.error_class,
+      );
+      throw new AIError({ ...detail, error_class: 'unknown' }, maybeAI.__status);
+    }
+    throw new AIError(detail, maybeAI.__status);
   }
   throw err as Error;
 }
 
 export const aiApi = {
   /**
-   * Get available AI providers
+   * Get available AI providers.
+   *
+   * Validates the response shape — any item missing the required
+   * ``id``/``name`` fields is dropped with a console warning rather than
+   * crashing downstream consumers that assume a well-formed list.
    */
   getProviders: async (): Promise<AIProviderInfo[]> => {
     const response = await api.get<APIResponse<AIProviderInfo[]>>('/ai/providers');
-    return response.data.data || [];
+    const raw = response.data.data || [];
+    const valid: AIProviderInfo[] = [];
+    for (const item of raw) {
+      if (
+        item
+        && typeof item === 'object'
+        && typeof (item as AIProviderInfo).id === 'string'
+        && typeof (item as AIProviderInfo).name === 'string'
+      ) {
+        valid.push(item as AIProviderInfo);
+      } else {
+        console.warn('[AI] Dropping malformed provider entry from /ai/providers:', item);
+      }
+    }
+    return valid;
   },
 
   /**
@@ -536,6 +579,13 @@ export const aiApi = {
       stats?: Record<string, number>;
     }>;
     description: string;
+    /** Loaded dataset id — required when ``dataset_access`` is true. */
+    dataset_id?: string;
+    /**
+     * If true, the AI may issue read-only tool calls against the loaded
+     * dataset to inspect data before generating the formula. Default false.
+     */
+    dataset_access?: boolean;
   }): Promise<{ formula: string; provider: string }> => {
     let response;
     try {

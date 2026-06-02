@@ -15,10 +15,8 @@ from app.services.ai_graph.schemas import (
 from app.services.ai_graph.validators import (
     validate_columns_exist,
     validate_column_types,
-    validate_viz_type_requirements,
     validate_professional_output,
     validate_suggestion_complete,
-    get_column_suggestions,
 )
 
 
@@ -186,73 +184,10 @@ class TestValidateColumnTypes:
         assert result.is_valid is True
 
 
-# ============= validate_viz_type_requirements =============
-
-class TestValidateVizTypeRequirements:
-
-    def test_universal_with_1_y_ok(self):
-        s = _make_suggestion(viz_type="universal", y_axes=["Temp"])
-        result = validate_viz_type_requirements(s)
-        assert result.is_valid is True
-
-    def test_universal_with_0_y_fails(self):
-        # Cannot create this via _make_suggestion due to model validator,
-        # so we test the validator function directly with a patched object.
-        # We need to bypass model validation for this test.
-        s = _make_suggestion(viz_type="universal", y_axes=["Temp"])
-        # Manually clear y_axes after creation
-        object.__setattr__(s, 'y_axes', [])
-        result = validate_viz_type_requirements(s)
-        assert result.is_valid is False
-
-    def test_pca_requires_3(self):
-        s = _make_suggestion(viz_type="pca", y_axes=["A", "B", "C"])
-        # Manually reduce
-        object.__setattr__(s, 'y_axes', ["A", "B"])
-        result = validate_viz_type_requirements(s)
-        assert result.is_valid is False
-
-    def test_pca_with_3_ok(self):
-        s = _make_suggestion(viz_type="pca", y_axes=["A", "B", "C"])
-        result = validate_viz_type_requirements(s)
-        assert result.is_valid is True
-
-    def test_correlation_requires_3(self):
-        s = _make_suggestion(
-            viz_type="correlation", x_axis="", y_axes=["A", "B", "C"]
-        )
-        object.__setattr__(s, 'y_axes', ["A", "B"])
-        result = validate_viz_type_requirements(s)
-        assert result.is_valid is False
-
-    def test_formula_requires_expression(self):
-        s = _make_suggestion(
-            viz_type="formula",
-            y_axes=[],
-            additional_config=AdditionalConfig(
-                formula=FormulaConfig(input="result = col['A'] + 1")
-            ),
-        )
-        # Clear the formula
-        s.additional_config.formula.input = ""
-        result = validate_viz_type_requirements(s)
-        assert result.is_valid is False
-
-    def test_formula_with_expression_ok(self):
-        s = _make_suggestion(
-            viz_type="formula",
-            y_axes=[],
-            additional_config=AdditionalConfig(
-                formula=FormulaConfig(input="result = col['A'] + 1")
-            ),
-        )
-        result = validate_viz_type_requirements(s)
-        assert result.is_valid is True
-
-    def test_universal_valid_plot_type(self):
-        s = _make_suggestion(viz_type="universal", plot_type="scatter")
-        result = validate_viz_type_requirements(s)
-        assert result.is_valid is True
+# Viz-type structural requirements are enforced by the
+# ``VisualizationSuggestion`` model_validator at Pydantic construction —
+# see ``TestVizTypeRequirements`` in ``test_ai_graph_schemas.py`` for
+# coverage (e.g. ``test_pca_requires_3_y_axes``).
 
 
 # ============= validate_professional_output =============
@@ -328,24 +263,3 @@ class TestValidateSuggestionComplete:
         assert result.is_valid is False
 
 
-# ============= get_column_suggestions =============
-
-class TestGetColumnSuggestions:
-
-    def test_close_match(self):
-        suggestions = get_column_suggestions("Temprature", {"Temperature", "Pressure", "Flow"})
-        assert "Temperature" in suggestions
-
-    def test_no_match(self):
-        suggestions = get_column_suggestions("XYZABC", {"Temperature", "Pressure"})
-        assert suggestions == []
-
-    def test_multiple_matches(self):
-        cols = {"temp_inlet", "temp_outlet", "temp_core", "pressure"}
-        suggestions = get_column_suggestions("temp", cols, n=3)
-        assert len(suggestions) <= 3
-        assert all("temp" in s for s in suggestions)
-
-    def test_exact_match(self):
-        suggestions = get_column_suggestions("Temp", {"Temp", "Pressure"})
-        assert "Temp" in suggestions

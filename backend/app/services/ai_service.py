@@ -12,12 +12,30 @@ a LangGraph workflow that includes:
 The service converts AI suggestions into VisualizationConfig objects that can
 be directly rendered by the frontend.
 """
-import os
+import logging
 import re
 import uuid
-import asyncio
 from typing import Optional
-import logging
+
+import pandas as pd
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.models.schemas import (
+    VisualizationConfig,
+    VisualizationType,
+    AxisConfig,
+    RegressionConfig,
+    PCAConfig,
+    StyleConfig,
+    LegendConfig,
+    LimitConfig,
+    Threshold,
+    FormulaConfig,
+    SeriesConfiguration,
+    PlotType,
+    KPIConfig,
+    KPIMetric,
+)
 
 from .ai_graph import (
     run_suggestion_workflow,
@@ -33,6 +51,17 @@ from .ai_graph import (
     AIProviderUnavailable,
     AIInvalidOutput,
 )
+from .ai_graph._debug import debug_log as _debug_log, get_debug_level as _get_debug_level
+from .ai_graph.errors import (
+    _classify_exception,
+    _extract_retry_after_s,
+    classify_and_wrap,
+)
+from .ai_graph.schemas import ColumnMetadata
+
+
+logger = logging.getLogger(__name__)
+
 
 # Control characters that would let user input break prompt structure or
 # confuse the tokenizer. We keep newlines and tabs; strip everything else
@@ -41,8 +70,17 @@ _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 # More than 2 consecutive newlines collapse to 2.
 _MULTI_NEWLINE_RE = re.compile(r"\n{3,}")
 
+# Hard caps applied AFTER sanitization. The Pydantic ``max_length`` on the
+# API boundary already enforces these on raw input, but any future transform
+# that could grow the string (Unicode normalization, character substitution
+# with longer replacements) would bypass that cap. These post-sanitization
+# truncations are defense-in-depth so the value handed to the prompt
+# templates is always within bounds. Numbers match the API-layer caps.
+_MAX_GUIDANCE_CHARS = 2000
+_MAX_DESCRIPTION_CHARS = 500
 
-def _sanitize_user_text(text: str) -> str:
+
+def _sanitize_user_text(text: str, max_chars: int = _MAX_GUIDANCE_CHARS) -> str:
     """Neutralize user-supplied text before embedding in an LLM prompt.
 
     Applied to guidance_text and column descriptions. Prevents the most
@@ -51,12 +89,18 @@ def _sanitize_user_text(text: str) -> str:
     system prompt also contains an explicit "treat tagged content as data"
     rule.
 
+    After sanitization the string is hard-truncated to ``max_chars`` so any
+    post-validator growth (none today, but a future transform might enlarge
+    a substring) cannot exceed the boundary cap.
+
     Args:
         text: Raw user-supplied string.
+        max_chars: Final length cap. Defaults to the guidance cap; pass
+            ``_MAX_DESCRIPTION_CHARS`` for column descriptions.
 
     Returns:
-        Sanitized string safe to interpolate inside <user_guidance> or
-        <column_description> XML blocks.
+        Sanitized, length-capped string safe to interpolate inside
+        <user_guidance> or <column_description> XML blocks.
     """
     if not text:
         return ""
@@ -67,173 +111,14 @@ def _sanitize_user_text(text: str) -> str:
     # closing <user_guidance> prematurely.
     sanitized = sanitized.replace("</user_guidance>", "‹/user_guidance›")
     sanitized = sanitized.replace("</column_description>", "‹/column_description›")
+    if max_chars > 0 and len(sanitized) > max_chars:
+        sanitized = sanitized[:max_chars]
     return sanitized
 
 
-def _extract_retry_after_s(exc: BaseException) -> Optional[float]:
-    """Extract a Retry-After hint from a provider exception, if present.
-
-    Anthropic/OpenAI expose the raw HTTP response on `.response`; headers
-    may be a mapping-like object. Missing/malformed → None.
-    """
-    response = getattr(exc, "response", None)
-    if response is None:
-        return None
-    headers = getattr(response, "headers", None)
-    if headers is None:
-        return None
-    getter = getattr(headers, "get", None)
-    if not callable(getter):
-        return None
-    retry_after = getter("retry-after") or getter("Retry-After")
-    if not retry_after:
-        return None
-    try:
-        return float(retry_after)
-    except (ValueError, TypeError):
-        return None
-
-
-def _classify_exception(exc: BaseException) -> AIErrorClass:
-    """Map a provider exception to a typed AIErrorClass.
-
-    Inspects the exception's module/class name to match known provider SDK
-    shapes (anthropic, openai, google.genai). Falls back to substring
-    matching on the message for wrapped exceptions or unknown providers.
-
-    Kept deliberately import-free so provider SDK version drift (renamed
-    classes, new hierarchies) can't crash the classifier — unknown shapes
-    simply fall through to the substring fallback.
-    """
-    if isinstance(exc, AIProviderError):
-        return exc.error_class
-
-    module = getattr(type(exc), "__module__", "") or ""
-    name = type(exc).__name__
-
-    if module.startswith("anthropic") or module.startswith("openai"):
-        if name in ("AuthenticationError", "PermissionDeniedError"):
-            return AIErrorClass.INVALID_KEY
-        if name == "RateLimitError":
-            return AIErrorClass.RATE_LIMIT
-        if name == "APITimeoutError":
-            return AIErrorClass.TIMEOUT
-        if name in ("APIConnectionError", "InternalServerError"):
-            return AIErrorClass.PROVIDER_UNAVAILABLE
-
-    if module.startswith("google.genai") or module.startswith("google.api_core"):
-        code = getattr(exc, "code", None)
-        if code in (401, 403):
-            return AIErrorClass.INVALID_KEY
-        if code == 429:
-            msg_lower = str(exc).lower()
-            if "quota" in msg_lower:
-                return AIErrorClass.QUOTA_EXCEEDED
-            return AIErrorClass.RATE_LIMIT
-        if code == 408:
-            return AIErrorClass.TIMEOUT
-        if isinstance(code, int) and code >= 500:
-            return AIErrorClass.PROVIDER_UNAVAILABLE
-
-    # Last-resort substring heuristic. Covers wrapped/unknown exceptions
-    # whose SDK module/name isn't recognized above.
-    msg = str(exc).lower()
-    if "api key" in msg or "authentication" in msg or "unauthorized" in msg:
-        return AIErrorClass.INVALID_KEY
-    if "quota" in msg:
-        return AIErrorClass.QUOTA_EXCEEDED
-    if "rate limit" in msg or "too many requests" in msg:
-        return AIErrorClass.RATE_LIMIT
-    if "timeout" in msg or "timed out" in msg:
-        return AIErrorClass.TIMEOUT
-    return AIErrorClass.UNKNOWN
-
-
-def classify_and_wrap(
-    exc: BaseException, provider: Optional[str] = None
-) -> AIProviderError:
-    """Convert an arbitrary exception into a typed `AIProviderError`.
-
-    Pass-through if `exc` is already typed. Otherwise classifies and
-    returns the right subclass, preserving any Retry-After hint.
-    """
-    if isinstance(exc, AIProviderError):
-        return exc
-
-    cls = _classify_exception(exc)
-    retry_after = _extract_retry_after_s(exc)
-    message = str(exc) or type(exc).__name__
-
-    if cls == AIErrorClass.TIMEOUT:
-        return AIProviderTimeout(
-            provider=provider or "unknown", elapsed_s=0.0, message=message
-        )
-    if cls == AIErrorClass.INVALID_KEY:
-        return AIInvalidKey(message, provider=provider)
-    if cls == AIErrorClass.RATE_LIMIT:
-        return AIRateLimited(message, provider=provider, retry_after_s=retry_after)
-    if cls == AIErrorClass.QUOTA_EXCEEDED:
-        return AIQuotaExceeded(message, provider=provider)
-    if cls == AIErrorClass.PROVIDER_UNAVAILABLE:
-        return AIProviderUnavailable(message, provider=provider)
-    if cls == AIErrorClass.INVALID_OUTPUT:
-        return AIInvalidOutput(message, provider=provider)
-    return AIProviderError(message, provider=provider)
-
-
-from pydantic import BaseModel, Field
-from app.models.schemas import (
-    VisualizationConfig,
-    VisualizationType,
-    AxisConfig,
-    RegressionConfig,
-    PCAConfig,
-    StyleConfig,
-    LegendConfig,
-    LimitConfig,
-    FormulaConfig,
-    SeriesConfiguration,
-    PlotType,
-    KPIConfig,
-    KPIMetric,
-)
-
-logger = logging.getLogger(__name__)
-
-
-def _get_debug_level() -> int:
-    """Get debug level from AI_DEBUG_LEVEL environment variable.
-
-    Returns the integer level used by ``ai_graph.graph.AIDebugLogger``
-    (0=OFF, 1=SUMMARY, 2=STANDARD, 3=VERBOSE, 4=TRACE). Defaults to 0.
-    """
-    try:
-        return int(os.environ.get("AI_DEBUG_LEVEL", "0"))
-    except ValueError:
-        return 0
-
-
-def _debug_log(message: str, min_level: int = 1) -> None:
-    """Log debug message if AI_DEBUG_LEVEL is high enough.
-
-    Args:
-        message: Message to log with [AI-SVC] prefix.
-        min_level: Minimum debug level required to show this message.
-    """
-    if _get_debug_level() >= min_level:
-        print(f"[AI-SVC] {message}")
-
-
 # ============= Request Schemas =============
-
-class ColumnMetadata(BaseModel):
-    """Rich metadata for a single column/variable in the dataset."""
-    name: str = Field(..., description="Column name from the dataset")
-    description: str = Field(..., description="User-provided semantic description of the variable")
-    data_type: str = Field(..., description="Data type: 'numeric', 'datetime', or 'categorical'")
-    unit: str = Field(default="", description="Unit of measurement (e.g., '°C', 'kg/h')")
-    role: str = Field(default="", description="Role: 'target', 'feature', 'timestamp', 'identifier', or empty")
-    stats: Optional[dict] = Field(default=None, description="Statistical summary: {min, max, mean, std, count}")
+# ``ColumnMetadata`` lives in ``ai_graph.schemas`` and is imported above —
+# single source of truth, with Literal-typed ``data_type`` and ``role``.
 
 
 class AIRequest(BaseModel):
@@ -249,7 +134,21 @@ class AIRequest(BaseModel):
         existing_visualizations: Titles of existing visualizations to avoid duplicates.
         max_suggestions: Maximum number of suggestions to generate (1-10).
         model: Optional model name to override the default for the provider.
+        dataset_access: When True, the workflow routes through the agent_loop
+            node so the LLM can iteratively call read-only DataFrame inspection
+            tools. Default False keeps the privacy-preserving metadata-only path.
+        dataframe: Pandas DataFrame the bound tools close over. Required when
+            ``dataset_access`` is True; never serialized over the wire (the API
+            layer fetches it server-side from ``data_service``).
     """
+    # Allow pandas.DataFrame to live on the model as an internal handle. It is
+    # never serialized — the API layer attaches it after fetching from
+    # data_service and the model is consumed in-process by the service layer.
+    # ``extra="forbid"`` catches schema-drift at the service boundary —
+    # field renames or unmapped frontend keys fail loudly instead of being
+    # silently dropped.
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
+
     columns: list[ColumnMetadata] = Field(..., description="List of column metadata with descriptions")
     guidance_text: str = Field(..., description="User's free-form description of analysis goals")
     available_viz_types: list[str] = Field(
@@ -260,6 +159,36 @@ class AIRequest(BaseModel):
     max_suggestions: int = Field(default=5, ge=1, le=10, description="Maximum number of suggestions to generate")
     model: Optional[str] = Field(default=None, description="Optional model name override for the AI provider")
     effort: Optional[str] = Field(default=None, description="Reasoning effort level: 'low', 'medium', or 'high'")
+    dataset_access: bool = Field(
+        default=False,
+        description="If True, allow the AI to query the dataset via read-only tools",
+    )
+    dataframe: Optional[pd.DataFrame] = Field(
+        default=None,
+        description="Internal: DataFrame attached by the API layer when dataset_access is True",
+        exclude=True,
+    )
+    max_tool_iterations: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=30,
+        description=(
+            "Per-request override for the agent-loop iteration cap. "
+            "Only meaningful when dataset_access is True. None uses the "
+            "workflow default."
+        ),
+    )
+    idle_timeout_s: Optional[float] = Field(
+        default=None,
+        ge=10.0,
+        le=600.0,
+        description=(
+            "Per-request override for the streaming idle timeout (seconds). "
+            "Resets on every chunk, so a long-but-progressing response is "
+            "never killed; only a true stall fires. None uses the default "
+            "picked from effort + tool binding."
+        ),
+    )
 
 
 class AIVisualizationService:
@@ -348,14 +277,18 @@ class AIVisualizationService:
         columns = [
             {
                 "name": col.name,
-                "description": _sanitize_user_text(col.description or ""),
+                "description": _sanitize_user_text(
+                    col.description or "", max_chars=_MAX_DESCRIPTION_CHARS
+                ),
                 "data_type": col.data_type,
                 "unit": col.unit or "",
                 "role": col.role or "",
             }
             for col in request.columns
         ]
-        sanitized_guidance = _sanitize_user_text(request.guidance_text)
+        sanitized_guidance = _sanitize_user_text(
+            request.guidance_text, max_chars=_MAX_GUIDANCE_CHARS
+        )
         
         _debug_log(f"  Column breakdown:", min_level=2)
         for col in columns[:5]:  # Limit to first 5
@@ -379,7 +312,11 @@ class AIVisualizationService:
                 effort=request.effort,
                 available_viz_types=request.available_viz_types,
                 existing_visualizations=existing,
-                max_suggestions=request.max_suggestions
+                max_suggestions=request.max_suggestions,
+                dataset_access=request.dataset_access,
+                dataframe=request.dataframe,
+                max_tool_iterations=request.max_tool_iterations,
+                idle_timeout_s=request.idle_timeout_s,
             )
             
             _debug_log(f"Service: Workflow completed", min_level=1)
@@ -437,24 +374,35 @@ class AIVisualizationService:
         }
         plot_type = plot_type_mapping.get(suggestion.plot_type, PlotType.LINE)
         
-        # Build axis config using AI-provided labels
+        # Build series_configs for universal plots
+        # Access typed AdditionalConfig fields directly
+        add_config = suggestion.additional_config
+        # Resolve secondary-axis assignments. Keys not present in y_axes are
+        # already rejected by the schema validator, so this map is safe to
+        # use as a direct lookup.
+        axis_map = (add_config.series_axis_assignments or {}) if add_config else {}
+        any_right = any(side == "right" for side in axis_map.values())
+
+        # Build axis config using AI-provided labels.
+        # ``enable_y2_axis_range`` flips the dual-axis layout on; the actual
+        # min/max bounds for the right axis are left as None so Plotly
+        # auto-scales them from the data.
         axis = AxisConfig(
             x_axis=suggestion.x_axis,
             y_axis=suggestion.y_axes,
             x_label=suggestion.x_label if suggestion.x_label else suggestion.x_axis,
             y_label=suggestion.y_label if suggestion.y_label else (suggestion.y_axes[0] if len(suggestion.y_axes) == 1 else "Value"),
-            multi_axis_plot_type=plot_type
+            multi_axis_plot_type=plot_type,
+            enable_y2_axis_range=any_right,
+            y2_label=(suggestion.y2_label or "Secondary Axis") if any_right else "Secondary Axis",
         )
-        
-        # Build series_configs for universal plots
-        # Access typed AdditionalConfig fields directly
-        add_config = suggestion.additional_config
+
         series_configs = {}
         if viz_type == VisualizationType.UNIVERSAL:
             for i, y_var in enumerate(suggestion.y_axes):
                 series_configs[y_var] = SeriesConfiguration(
                     type=suggestion.plot_type if suggestion.plot_type else "line",
-                    y_axis_id="left",
+                    y_axis_id=axis_map.get(y_var, "left"),
                     color=None,
                     show_regression=add_config.add_regression if add_config else False,
                     show_confidence_interval=add_config.show_confidence_interval if add_config else False,
@@ -512,6 +460,19 @@ class AIVisualizationService:
                 ]
             )
 
+        # Build LimitConfig from AI-suggested reference lines. The AI provides
+        # only label/value/axis; defaults for color and shading match what a
+        # user gets when adding a threshold via the UI.
+        thresholds: list[Threshold] = []
+        if add_config and add_config.reference_lines:
+            for rl in add_config.reference_lines:
+                thresholds.append(Threshold(
+                    id=str(uuid.uuid4()),
+                    value=rl.value,
+                    label=rl.label,
+                    y_axis_id=rl.axis,
+                ))
+
         # Create the config with all required fields
         config = VisualizationConfig(
             id=config_id,
@@ -520,7 +481,7 @@ class AIVisualizationService:
             axis=axis,
             legend=LegendConfig(labels=suggestion.legend_labels if suggestion.legend_labels else None),
             style=style,
-            limits=LimitConfig(),
+            limits=LimitConfig(thresholds=thresholds),
             regression=regression,
             pca=pca,
             formula=formula_config,

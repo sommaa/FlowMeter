@@ -32,12 +32,58 @@ import json
 import logging
 import os
 from collections import deque
+from contextvars import ContextVar
 from dataclasses import dataclass, asdict, fields
 from pathlib import Path
 from typing import Any, Iterable, Optional
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
+
+
+# Per-request correlation ID. Set at the API boundary, read by the logging
+# filter (to prefix log lines) and by the workflow (to stamp the metrics
+# record). An empty default keeps backwards-compatible behavior for code
+# paths that don't go through the API layer (tests, background jobs).
+ai_request_id: ContextVar[str] = ContextVar("ai_request_id", default="")
+
+
+class RequestIdLogFilter(logging.Filter):
+    """Prefix log records with ``[req-xxxxx]`` when an AI request is active.
+
+    Installed once at module load by the AI router. The filter mutates
+    ``record.msg`` rather than adding a separate attribute so it works
+    with every existing format string in the codebase.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        rid = ai_request_id.get("")
+        if rid and isinstance(record.msg, str) and not record.msg.startswith("[req-"):
+            record.msg = f"[req-{rid}] {record.msg}"
+        return True
+
+
+def install_request_id_log_filter() -> None:
+    """Attach :class:`RequestIdLogFilter` to relevant loggers, idempotently.
+
+    Targets the AI-suite loggers (``app.api.ai``, ``app.services.ai_*``)
+    plus root. Safe to call multiple times — checks for an existing
+    instance before adding.
+    """
+    targets = [
+        logging.getLogger(),  # root
+        logging.getLogger("app.api.ai"),
+        logging.getLogger("app.services.ai_service"),
+        logging.getLogger("app.services.ai_metrics"),
+        logging.getLogger("app.services.ai_graph"),
+        logging.getLogger("app.services.ai_graph.graph"),
+        logging.getLogger("app.services.ai_graph.providers"),
+        logging.getLogger("app.services.ai_graph.errors"),
+        logging.getLogger("app.services.ai_graph.tools"),
+    ]
+    for lg in targets:
+        if not any(isinstance(f, RequestIdLogFilter) for f in lg.filters):
+            lg.addFilter(RequestIdLogFilter())
 
 
 # Cap the in-memory ring so /metrics reads stay bounded (O(n) over the ring,
@@ -156,6 +202,9 @@ class AIMetricsRecord:
     effort: Optional[str] = None
     num_suggestions: int = 0
     num_ainvoke_calls: int = 0
+    # Total executions of dataset-access tools across the request (0 unless
+    # dataset_access was enabled and the LLM issued tool calls).
+    tool_calls_made: int = 0
 
     def __post_init__(self) -> None:
         # Length-cap categorical strings so a misbehaving caller can't smuggle
