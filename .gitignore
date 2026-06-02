@@ -60,6 +60,8 @@ backend/icon.png
 # Uploads (runtime)
 backend/uploads/
 backend/data/
+# Root-level uploads dir created when the backend runs / tests run from the repo root
+uploads/
 
 # Miscellaneous
 *.log
