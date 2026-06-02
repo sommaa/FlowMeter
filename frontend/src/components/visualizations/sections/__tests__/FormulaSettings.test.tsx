@@ -64,20 +64,20 @@ describe('FormulaSettings', () => {
     it('detects single result variable', () => {
         const onUpdate = vi.fn();
         render(<FormulaSettings config={makeConfig({ formula: { input: "result = col['Temp'] * 2" } })} onUpdate={onUpdate} onOpenFormula={vi.fn()} />);
-        // The SeriesCard for 'result' should render with the title
-        expect(screen.getByPlaceholderText('result')).toBeTruthy();
+        // The collapsed SeriesCard for 'result' shows the key name as header text
+        expect(screen.getByText('result')).toBeTruthy();
     });
 
     it('detects multiple result variables', () => {
         const onUpdate = vi.fn();
         render(<FormulaSettings config={makeConfig({ formula: { input: "result1 = col['Temp']\nresult2 = col['Press']" } })} onUpdate={onUpdate} onOpenFormula={vi.fn()} />);
-        expect(screen.getByPlaceholderText('result1')).toBeTruthy();
-        expect(screen.getByPlaceholderText('result2')).toBeTruthy();
+        expect(screen.getByText('result1')).toBeTruthy();
+        expect(screen.getByText('result2')).toBeTruthy();
     });
 
     it('falls back to result when no matches found', () => {
         const onUpdate = vi.fn();
         render(<FormulaSettings config={makeConfig({ formula: { input: "x = 5" } })} onUpdate={onUpdate} onOpenFormula={vi.fn()} />);
-        expect(screen.getByPlaceholderText('result')).toBeTruthy();
+        expect(screen.getByText('result')).toBeTruthy();
     });
 });

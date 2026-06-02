@@ -45,7 +45,7 @@ describe('FloatingControls', () => {
     mockStoreState.visualizationColumns = 2;
     render(<FloatingControls />);
     const button2 = screen.getByTitle('2 Columns');
-    expect(button2.className).toContain('bg-primary');
+    expect(button2.className).toContain('bg-foreground');
   });
 
   it('does not highlight inactive column buttons', () => {
@@ -54,8 +54,8 @@ describe('FloatingControls', () => {
     render(<FloatingControls />);
     const button1 = screen.getByTitle('1 Column');
     const button3 = screen.getByTitle('3 Columns');
-    expect(button1.className).not.toContain('bg-primary');
-    expect(button3.className).not.toContain('bg-primary');
+    expect(button1.className).not.toContain('bg-foreground');
+    expect(button3.className).not.toContain('bg-foreground');
   });
 
   it('calls setVisualizationColumns with 1 when 1 Column button is clicked', () => {
@@ -84,9 +84,9 @@ describe('FloatingControls', () => {
     mockStoreState.visualizationColumns = 1;
     render(<FloatingControls />);
     const button1 = screen.getByTitle('1 Column');
-    expect(button1.className).toContain('bg-primary');
+    expect(button1.className).toContain('bg-foreground');
     const button2 = screen.getByTitle('2 Columns');
-    expect(button2.className).not.toContain('bg-primary');
+    expect(button2.className).not.toContain('bg-foreground');
   });
 
   it('hides when visualizations array becomes empty', () => {

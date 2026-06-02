@@ -26,8 +26,13 @@ describe('SeriesCard', () => {
         vi.clearAllMocks();
     });
 
+    // The card starts collapsed; clicking the header (series name) expands it
+    // to reveal the full configuration controls.
+    const expandCard = () => fireEvent.click(screen.getByText('Temperature'));
+
     it('renders with title as placeholder', () => {
         render(<SeriesCard {...defaultProps} />);
+        expandCard();
         expect(screen.getByPlaceholderText('Temperature')).toBeTruthy();
     });
 
@@ -50,6 +55,7 @@ describe('SeriesCard', () => {
 
     it('shows type and axis selectors for universal type', () => {
         render(<SeriesCard {...defaultProps} vizType="universal" />);
+        expandCard();
         // Should render chart type options like Line, Scatter etc and Left/Right Axis
         expect(screen.getByText('Show Trendline')).toBeTruthy();
     });
@@ -67,6 +73,7 @@ describe('SeriesCard', () => {
 
     it('shows trendline checkbox for universal type', () => {
         render(<SeriesCard {...defaultProps} vizType="universal" />);
+        expandCard();
         expect(screen.getByText('Show Trendline')).toBeTruthy();
     });
 
@@ -82,12 +89,14 @@ describe('SeriesCard', () => {
 
     it('shows histogram options for hist type', () => {
         render(<SeriesCard {...defaultProps} vizType="hist" seriesConfig={{ ...defaultProps.seriesConfig, bins: 30, show_kde: false }} />);
+        expandCard();
         expect(screen.getByText('Bins')).toBeTruthy();
         expect(screen.getByText('Show KDE Overlay')).toBeTruthy();
     });
 
     it('shows trendline sub-options when show_regression is true', () => {
         render(<SeriesCard {...defaultProps} seriesConfig={{ ...defaultProps.seriesConfig, show_regression: true }} />);
+        expandCard();
         expect(screen.getByText('95% CI')).toBeTruthy();
         expect(screen.getByText('Remove Outliers')).toBeTruthy();
     });

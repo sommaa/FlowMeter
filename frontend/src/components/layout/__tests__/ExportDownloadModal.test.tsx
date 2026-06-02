@@ -42,7 +42,7 @@ describe('ExportDownloadModal', () => {
     render(<ExportDownloadModal {...defaultProps} />);
     expect(screen.getByText('Export Report')).toBeInTheDocument();
     expect(
-      screen.getByText('Select the data range you wish to include in your report.')
+      screen.getByText('Select the data range and sections to include in your report.')
     ).toBeInTheDocument();
   });
 

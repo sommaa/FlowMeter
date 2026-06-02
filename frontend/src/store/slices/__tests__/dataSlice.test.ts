@@ -20,6 +20,7 @@ import { dataApi, reconciliationApi } from '@/services/api';
 // Minimal extra state that the data slice expects from other slices
 interface TestExtras {
   activeWorkspaceId: string;
+  workspaceMeta: { id: string; name: string; createdAt: number }[];
   workspaces: Record<string, any>;
   error: string | null;
   refreshAllPlots: () => Promise<void>;
@@ -35,6 +36,7 @@ const createTestStore = () =>
     ...createDataSlice(set as any, get as any, api as any),
     // Provide minimal cross-slice state needed by dataSlice actions
     activeWorkspaceId: 'default',
+    workspaceMeta: [{ id: 'default', name: 'Workspace 1', createdAt: 0 }],
     workspaces: {},
     error: null,
     refreshAllPlots: vi.fn().mockResolvedValue(undefined),

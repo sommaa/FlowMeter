@@ -83,8 +83,9 @@ import { ConfirmationModal } from '@/components/common/ConfirmationModal';
  * - **Header Row**:
  *   - Template name (editable inline if in rename mode)
  *   - Compatibility badge:
- *     - "Recommended" (green) if all required variables present
- *     - "Missing Vars" (gray) if incompatible with current dataset
+ *     - "Recommended" (primary) if ≥90% of required variables present
+ *     - "{N}% Match" (amber) if ≥50% present
+ *     - "Incompatible" (gray) if <50% present
  *
  * - **Metadata Row**:
  *   - File size in KB (size_bytes / 1024)

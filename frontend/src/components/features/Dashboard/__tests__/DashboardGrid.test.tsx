@@ -110,7 +110,7 @@ describe('DashboardGrid', () => {
     );
 
     render(<DashboardGrid />);
-    expect(screen.getByText('No Data Loaded')).toBeInTheDocument();
+    expect(screen.getByText('No data loaded')).toBeInTheDocument();
     expect(screen.getByText('Upload a dataset via the sidebar to get started.')).toBeInTheDocument();
   });
 
@@ -138,7 +138,7 @@ describe('DashboardGrid', () => {
     );
 
     render(<DashboardGrid />);
-    expect(screen.getByText('Dashboard is Empty')).toBeInTheDocument();
+    expect(screen.getByText('Dashboard is empty')).toBeInTheDocument();
     expect(screen.getByText('Add your first visualization to start monitoring your process data.')).toBeInTheDocument();
     expect(screen.getByText('Create Visualization')).toBeInTheDocument();
   });

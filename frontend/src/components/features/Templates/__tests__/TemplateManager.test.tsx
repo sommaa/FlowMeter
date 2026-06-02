@@ -139,11 +139,11 @@ describe('TemplateManager', () => {
         });
     });
 
-    it('shows "Missing Vars" badge for incompatible templates', async () => {
+    it('shows a partial-match badge for templates missing some variables', async () => {
         render(<TemplateManager />);
         await waitFor(() => {
-            // template-beta requires MissingVar which is not in dataset
-            expect(screen.getByText('Missing Vars')).toBeTruthy();
+            // template-beta requires Temperature, Flow, MissingVar — 2 of 3 present (67%)
+            expect(screen.getByText('67% Match')).toBeTruthy();
         });
     });
 

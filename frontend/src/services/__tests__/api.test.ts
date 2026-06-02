@@ -492,7 +492,10 @@ describe('aiApi', () => {
 
       const request = { provider: 'gemini', api_key: 'key', dataset_id: 'ds1' } as any;
       const result = await aiApi.suggest(request);
-      expect(result).toEqual(suggestResponse);
+      // suggest() injects a stable client-side id on each suggestion for UI bookkeeping
+      expect(result.suggestions).toHaveLength(1);
+      expect(result.suggestions[0]).toMatchObject({ title: 'Time Series' });
+      expect(typeof result.suggestions[0].id).toBe('string');
     });
 
     it('throws when data is null', async () => {

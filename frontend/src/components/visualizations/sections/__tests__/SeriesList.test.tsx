@@ -54,8 +54,9 @@ describe('SeriesList', () => {
     it('renders series cards for selected variables', () => {
         const onUpdate = vi.fn();
         render(<SeriesList config={makeConfig({ axis: { x_axis: 'Index', y_axis: ['Temperature', 'Pressure'] } })} numericColumns={numericColumns} onUpdate={onUpdate} />);
-        expect(screen.getByPlaceholderText('Temperature')).toBeTruthy();
-        expect(screen.getByPlaceholderText('Pressure')).toBeTruthy();
+        // Cards start collapsed, showing the series name as header text
+        expect(screen.getByText('Temperature')).toBeTruthy();
+        expect(screen.getByText('Pressure')).toBeTruthy();
     });
 
     it('shows stack areas toggle for area viz type', () => {
