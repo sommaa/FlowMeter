@@ -13,7 +13,6 @@ sites stay structured.
 """
 
 from pathlib import Path
-from typing import Optional
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
@@ -111,7 +110,7 @@ def get_user_prompt(
     # Format existing visualizations
     existing_text = ""
     if existing_visualizations:
-        existing_text = f"\n\n## Already Created (avoid duplicating):\n- " + "\n- ".join(existing_visualizations)
+        existing_text = "\n\n## Already Created (avoid duplicating):\n- " + "\n- ".join(existing_visualizations)
 
     return _env.get_template("user.j2").render(
         columns_text=columns_text,
@@ -151,56 +150,3 @@ def get_correction_prompt(
         columns_text=columns_text,
         reasoning_max_chars=reasoning_max_chars,
     )
-
-
-def get_formula_correction_prompt(
-    expression: str,
-    errors: list[str],
-    valid_columns: list[str]
-) -> str:
-    """Build a correction prompt specifically for fixing formula expressions.
-
-    When a formula visualization fails validation, this prompt instructs
-    the AI to fix the expression while following the formula syntax rules.
-    Unlike general correction prompts, this returns only the fixed expression
-    without any explanation.
-
-    Args:
-        expression: The original Python formula expression that failed.
-        errors: List of formula validation errors (syntax, safety, columns).
-        valid_columns: List of valid column names. Only the first 15 are
-            included to limit prompt size.
-
-    Returns:
-        The formatted correction prompt requesting only the corrected
-        Python formula expression without any explanation or wrapping.
-    """
-    columns_text = ", ".join(valid_columns[:15])
-
-    return f"""The following formula expression has errors:
-
-## Original Formula
-```python
-{expression}
-```
-
-## Errors
-{', '.join(errors)}
-
-## Available Columns
-{columns_text}
-
-## Rules for Valid Formulas
-1. Must assign to 'result' variable: `result = ...` (or `result1`, `result2` for multiple outputs)
-2. Access columns with: `col['column_name']` (do NOT use `df` — it is not available)
-3. `np` (numpy) and `pd` (pandas) are pre-imported and available
-4. Common numpy functions: np.exp, np.log, np.sqrt, np.sin, np.cos, np.where, np.abs, np.mean
-5. Pandas operations: .rolling(), .shift(), .diff(), .cumsum(), .fillna(), .clip()
-6. Use `**` for power (NOT `^`)
-7. Only use columns that exist in the dataset
-8. Do NOT use print(), eval(), exec(), import, open(), or any I/O operations
-9. Handle edge cases (e.g., use np.where for division by zero)
-
-## Your Task
-Return ONLY the corrected Python formula expression. No explanation, no markdown code blocks.
-"""

@@ -3,6 +3,7 @@
 import pytest
 import os
 import sys
+from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -11,6 +12,12 @@ from app.services.ai_graph.formula_generator import (
     FormulaGenerateRequest,
     _build_user_prompt,
     FORMULA_SYSTEM_PROMPT,
+    generate_formula,
+)
+from app.services.ai_graph.errors import (
+    AIErrorClass,
+    AIProviderError,
+    AIRateLimited,
 )
 
 
@@ -114,3 +121,86 @@ class TestFormulaSystemPrompt:
 
     def test_prompt_safety_rules(self):
         assert "eval" in FORMULA_SYSTEM_PROMPT.lower() or "import" in FORMULA_SYSTEM_PROMPT.lower()
+
+
+class TestGenerateFormula:
+    """Tests for the ``generate_formula`` orchestration.
+
+    These patch ``_call_model`` (the shared reliability wrapper the formula
+    path now routes through) so they exercise the generate→validate→return
+    flow and the typed-error contract without hitting a real provider.
+    """
+
+    _COLS = [ColumnInfo(name="x")]
+
+    @pytest.mark.asyncio
+    async def test_single_shot_returns_validated_formula(self):
+        """Happy path: content from the model is parsed, validated, returned."""
+        fake_response = MagicMock()
+        fake_response.content = "result = col['x'] * 2"
+
+        with patch(
+            "app.services.ai_graph.formula_generator.get_chat_model",
+            return_value=MagicMock(),
+        ), patch(
+            "app.services.ai_graph.formula_generator._call_model",
+            new=AsyncMock(return_value=fake_response),
+        ) as mock_call:
+            out = await generate_formula(
+                provider_name="openai",
+                api_key="sk-test",
+                columns=self._COLS,
+                description="double x",
+            )
+
+        assert "result" in out
+        assert "col['x']" in out
+        # The formula path must go through the shared _call_model wrapper, not
+        # a raw ainvoke, so it inherits the streaming-timeout / retry policy.
+        mock_call.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_provider_error_propagates_as_typed(self):
+        """A typed AIProviderError must NOT be collapsed into a generic
+        ValueError — otherwise /ai/generate-formula returns 400 instead of the
+        documented 429/401/504/… mapping."""
+        with patch(
+            "app.services.ai_graph.formula_generator.get_chat_model",
+            return_value=MagicMock(),
+        ), patch(
+            "app.services.ai_graph.formula_generator._call_model",
+            new=AsyncMock(side_effect=AIRateLimited("slow down", provider="openai")),
+        ):
+            with pytest.raises(AIProviderError) as exc_info:
+                await generate_formula(
+                    provider_name="openai",
+                    api_key="sk-test",
+                    columns=self._COLS,
+                    description="double x",
+                )
+
+        assert isinstance(exc_info.value, AIRateLimited)
+        assert exc_info.value.error_class == AIErrorClass.RATE_LIMIT
+        assert not isinstance(exc_info.value, ValueError)
+
+    @pytest.mark.asyncio
+    async def test_raw_exception_is_classified_not_swallowed(self):
+        """A raw provider/SDK exception is classified into a typed error (here
+        the 'unauthorized' substring → invalid_key) rather than a bare 400."""
+        with patch(
+            "app.services.ai_graph.formula_generator.get_chat_model",
+            return_value=MagicMock(),
+        ), patch(
+            "app.services.ai_graph.formula_generator._call_model",
+            new=AsyncMock(side_effect=RuntimeError("unauthorized: bad key")),
+        ):
+            with pytest.raises(AIProviderError) as exc_info:
+                await generate_formula(
+                    provider_name="openai",
+                    api_key="sk-test",
+                    columns=self._COLS,
+                    description="double x",
+                )
+
+        assert exc_info.value.error_class == AIErrorClass.INVALID_KEY
+        assert not isinstance(exc_info.value, ValueError)

@@ -227,11 +227,11 @@ class AIDebugLogger:
             return
         self._log(f"  Formula: {formula[:80]}...", DebugLevel.STANDARD)
         if is_valid:
-            self._log(f"  [OK] Formula valid", DebugLevel.STANDARD)
+            self._log("  [OK] Formula valid", DebugLevel.STANDARD)
             if fixed != formula:
                 self._log(f"       Auto-fixed to: {fixed[:80]}...", DebugLevel.STANDARD)
         else:
-            self._log(f"  [FAIL] Formula invalid", DebugLevel.STANDARD)
+            self._log("  [FAIL] Formula invalid", DebugLevel.STANDARD)
             for err in (errors or []):
                 self._log(f"       - {err}", DebugLevel.STANDARD)
 

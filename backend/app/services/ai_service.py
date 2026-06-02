@@ -40,7 +40,6 @@ from app.models.schemas import (
 from .ai_graph import (
     run_suggestion_workflow,
     VisualizationSuggestion as GraphSuggestion,
-    get_chat_model,
     ALL_VIZ_TYPES,
     AIErrorClass,
     AIProviderError,
@@ -61,6 +60,40 @@ from .ai_graph.schemas import ColumnMetadata
 
 
 logger = logging.getLogger(__name__)
+
+
+# Public surface of this module. Besides the service itself, ``ai_service``
+# acts as a small facade that re-exports the typed-error model and a few
+# debug/classifier helpers from ``ai_graph`` so callers (``api/ai.py``) and
+# the test suite can import them from one place. Declaring them here keeps
+# that intent explicit and stops linters from flagging the re-exports as
+# "unused imports."
+__all__ = [
+    # Service entry points
+    "AIVisualizationService",
+    "get_ai_service",
+    "AIRequest",
+    "ColumnMetadata",
+    # Prompt-sanitization helpers (exercised directly by tests)
+    "_sanitize_user_text",
+    "_MAX_GUIDANCE_CHARS",
+    "_MAX_DESCRIPTION_CHARS",
+    # Debug helpers re-exported from ai_graph
+    "_debug_log",
+    "_get_debug_level",
+    # Typed-error surface re-exported from ai_graph (used by api/ai.py + tests)
+    "classify_and_wrap",
+    "_classify_exception",
+    "_extract_retry_after_s",
+    "AIErrorClass",
+    "AIProviderError",
+    "AIProviderTimeout",
+    "AIInvalidKey",
+    "AIRateLimited",
+    "AIQuotaExceeded",
+    "AIProviderUnavailable",
+    "AIInvalidOutput",
+]
 
 
 # Control characters that would let user input break prompt structure or
@@ -266,7 +299,7 @@ class AIVisualizationService:
         4. Formula validation
         5. Automatic retry/correction
         """
-        _debug_log(f"Service: Starting LangGraph workflow", min_level=1)
+        _debug_log("Service: Starting LangGraph workflow", min_level=1)
         _debug_log(f"  Provider: {provider_name}", min_level=1)
         _debug_log(f"  Model: {request.model or 'default'}", min_level=1)
         _debug_log(f"  Columns: {len(request.columns)}", min_level=1)
@@ -290,7 +323,7 @@ class AIVisualizationService:
             request.guidance_text, max_chars=_MAX_GUIDANCE_CHARS
         )
         
-        _debug_log(f"  Column breakdown:", min_level=2)
+        _debug_log("  Column breakdown:", min_level=2)
         for col in columns[:5]:  # Limit to first 5
             _debug_log(f"    - {col['name']} ({col['data_type']})", min_level=2)
         if len(columns) > 5:
@@ -319,7 +352,7 @@ class AIVisualizationService:
                 idle_timeout_s=request.idle_timeout_s,
             )
             
-            _debug_log(f"Service: Workflow completed", min_level=1)
+            _debug_log("Service: Workflow completed", min_level=1)
             _debug_log(f"  Validated suggestions: {len(validated_suggestions)}", min_level=1)
             _debug_log(f"  Validation errors: {len(errors)}", min_level=1)
             

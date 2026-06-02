@@ -22,11 +22,10 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.models.schemas import APIResponse, VisualizationConfig
+from app.models.schemas import APIResponse
 from app.services.ai_graph import (
     VisualizationSuggestion as GraphSuggestion,
     fetch_provider_models,
-    AIErrorClass,
     AIProviderError,
     ERROR_CLASS_TO_HTTP,
 )
@@ -41,7 +40,6 @@ from app.services.ai_metrics import (
 )
 from app.services.ai_service import (
     get_ai_service,
-    AIVisualizationService,
     AIRequest,
     ColumnMetadata,
     classify_and_wrap,

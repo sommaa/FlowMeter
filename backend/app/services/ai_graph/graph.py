@@ -17,7 +17,6 @@ Debug Levels (set AI_DEBUG_LEVEL environment variable):
 4 = TRACE (+ state snapshots and function calls)
 """
 
-import asyncio
 import json
 import logging
 import time
@@ -34,30 +33,22 @@ from .graph_debug import (
     debug,
 )
 from .graph_streaming import (
-    _TRANSIENT_BACKOFF_BASE_S,
     _TRANSIENT_BACKOFF_CAP_S,
-    _TRANSIENT_RETRY_MAX_ATTEMPTS,
     _ainvoke_streaming,
     _build_messages,
     _call_model,
     _log_cache_usage,
 )
 from .graph_parsing import (
-    _TRAILING_COMMA_RE,
-    _clean_json_text,
     _content_to_text,
     _looks_truncated,
     _parse_json_response,
     _parse_suggestion,
-    _try_loads_lenient,
-    _unwrap_to_list,
 )
 from .schemas import (
     VisualizationSuggestion,
     SuggestionGraphState,
     ColumnMetadata,
-    AdditionalConfig,
-    FormulaConfig,
     ALL_VIZ_TYPES,
 )
 from .providers import get_chat_model, ProviderType, ainvoke_timeout_s
@@ -65,17 +56,66 @@ from .prompts import get_system_prompt, get_user_prompt, get_correction_prompt
 from .tools import build_dataset_tools, _safe_json
 from .validators import validate_suggestion_complete
 from .formula_validator import validate_formula
-from .errors import AIProviderError, AIProviderTimeout, AIInvalidOutput, classify_and_wrap
+from .errors import AIProviderError, AIInvalidOutput, classify_and_wrap
 from ..ai_metrics import (
     AIMetricsRecord,
     ai_request_id,
-    extract_usage,
     get_collector,
     new_request_id,
 )
 
 
 logger = logging.getLogger(__name__)
+
+
+# Public surface of the workflow module. The leading-underscore entries are
+# helpers that were extracted into ``graph_streaming`` / ``graph_parsing`` /
+# ``graph_debug`` during the modular split but stay importable from ``graph``
+# for backward compatibility — several tests import or patch them here rather
+# than from the split modules. Declaring them keeps that re-export intent
+# explicit and stops linters from flagging the imports as unused.
+__all__ = [
+    # Workflow API
+    "create_suggestion_graph",
+    "run_suggestion_workflow",
+    "initialize_state",
+    "MAX_RETRIES",
+    "MAX_TOOL_ITERATIONS",
+    # Graph nodes
+    "generate_suggestions_node",
+    "agent_loop_node",
+    "validate_schema_node",
+    "validate_columns_node",
+    "validate_formulas_node",
+    "correct_suggestions_node",
+    "retry_node",
+    # Routers
+    "route_after_schema",
+    "route_after_columns",
+    "route_after_correct",
+    "route_after_retry",
+    "route_from_start",
+    # Re-exported provider/tool factories (patched on this module by tests)
+    "get_chat_model",
+    "ainvoke_timeout_s",
+    "build_dataset_tools",
+    # Re-exported streaming/parsing/debug helpers
+    "_call_model",
+    "_ainvoke_streaming",
+    "_build_messages",
+    "_log_cache_usage",
+    "_TRANSIENT_BACKOFF_CAP_S",
+    "_content_to_text",
+    "_parse_json_response",
+    "_parse_suggestion",
+    "_looks_truncated",
+    "debug",
+    "AIDebugLogger",
+    "DebugLevel",
+    "get_debug_level",
+    "_workflow_start_time",
+    "_phase_start_time",
+]
 
 
 # ============= Constants =============

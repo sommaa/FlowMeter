@@ -24,9 +24,12 @@ import logging
 from typing import Any, Optional
 from pydantic import BaseModel, Field
 
-from .providers import get_chat_model
+from .providers import get_chat_model, ainvoke_timeout_s
 from .formula_validator import validate_formula
 from .tools import build_dataset_tools
+from .errors import AIProviderError, classify_and_wrap
+from .graph_parsing import _content_to_text
+from .graph_streaming import _call_model
 
 logger = logging.getLogger(__name__)
 
@@ -222,6 +225,10 @@ async def _run_formula_agent_loop(
     system_prompt: str,
     user_prompt: str,
     dataframe,
+    *,
+    provider: str,
+    api_key: str,
+    idle_timeout_s: float,
     max_iterations: int = _FORMULA_MAX_TOOL_ITERATIONS,
 ) -> str:
     """Run the LLM ↔ tools loop and return the final assistant text.
@@ -229,6 +236,12 @@ async def _run_formula_agent_loop(
     Mirrors ``agent_loop_node`` in graph.py but inlined here because the
     formula generator returns a plain code string rather than structured
     suggestion JSON, so the rest of the orchestration differs.
+
+    Every model call goes through :func:`_call_model` (not a raw ``ainvoke``)
+    so the formula path gets the same reliability policy as the suggestion
+    path: progress-aware streaming idle timeout, one transient retry with
+    backoff on rate-limit / provider-unavailable, typed ``AIProviderError``
+    classification, and API-key redaction.
     """
     from langchain_core.messages import HumanMessage, ToolMessage
 
@@ -246,21 +259,21 @@ async def _run_formula_agent_loop(
 
     while iterations < max_iterations:
         iterations += 1
-        response = await bound_llm.ainvoke(messages)
+        response = await _call_model(
+            bound_llm,
+            messages,
+            provider=provider,
+            api_key=api_key,
+            idle_timeout_s=idle_timeout_s,
+        )
         messages.append(response)
 
         tool_calls = getattr(response, "tool_calls", None) or []
         if not tool_calls:
-            content = response.content
-            if isinstance(content, list):
-                # Anthropic extended-thinking returns a list of blocks
-                parts = []
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        parts.append(block.get("text", ""))
-                final_content = "".join(parts)
-            else:
-                final_content = str(content) if content is not None else ""
+            # Use the canonical normalizer so Anthropic thinking-block lists
+            # AND OpenAI Responses-API output items are both flattened to text
+            # (the inline copy this replaced only handled the Anthropic shape).
+            final_content = _content_to_text(response.content or "")
             break
 
         logger.info(
@@ -311,16 +324,14 @@ async def _run_formula_agent_loop(
                 )
             )
         )
-        response = await llm.ainvoke(messages)
-        content = response.content
-        if isinstance(content, list):
-            parts = []
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    parts.append(block.get("text", ""))
-            final_content = "".join(parts)
-        else:
-            final_content = str(content) if content is not None else ""
+        response = await _call_model(
+            llm,
+            messages,
+            provider=provider,
+            api_key=api_key,
+            idle_timeout_s=idle_timeout_s,
+        )
+        final_content = _content_to_text(response.content or "")
 
     return final_content
 
@@ -355,7 +366,10 @@ async def generate_formula(
         Generated Python formula code
 
     Raises:
-        ValueError: If generation fails or formula is invalid
+        AIProviderError: A typed provider failure (invalid key, rate-limit,
+            quota, timeout, provider-unavailable, or unknown) so the API
+            layer can map ``error_class`` to the right HTTP status — the same
+            structured contract as the suggestion path.
     """
     logger.info(
         f"Generating formula with {provider_name}, {len(columns)} columns "
@@ -375,26 +389,38 @@ async def generate_formula(
     # Generate
     try:
         if dataset_access and dataframe is not None:
+            # Tool-bound path: longer idle budget (tool schemas + dataset
+            # metadata ride along on every turn). Resets per streamed chunk.
+            idle_timeout_s = ainvoke_timeout_s(
+                provider_name, effort, tools_bound=True
+            )
             generated_code = await _run_formula_agent_loop(
                 llm=llm,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 dataframe=dataframe,
+                provider=provider_name,
+                api_key=api_key,
+                idle_timeout_s=idle_timeout_s,
             )
         else:
             messages = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ]
-            response = await llm.ainvoke(messages)
-            generated_code = response.content
-            if isinstance(generated_code, list):
-                # Anthropic extended-thinking returns a list of blocks
-                parts = []
-                for block in generated_code:
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        parts.append(block.get("text", ""))
-                generated_code = "".join(parts)
+            # Single-shot path through _call_model: progress-aware idle
+            # timeout, one transient retry, typed errors, key redaction.
+            idle_timeout_s = ainvoke_timeout_s(provider_name, effort)
+            response = await _call_model(
+                llm,
+                messages,
+                provider=provider_name,
+                api_key=api_key,
+                idle_timeout_s=idle_timeout_s,
+            )
+            # Canonical normalizer handles plain strings, Anthropic thinking
+            # blocks, and OpenAI Responses-API output items uniformly.
+            generated_code = _content_to_text(response.content or "")
 
         generated_code = _strip_code_fences(generated_code)
         
@@ -418,6 +444,20 @@ async def generate_formula(
         logger.info(f"Generated formula: {len(final_code)} chars")
         return final_code
         
+    except AIProviderError:
+        # Typed provider failures (invalid key, rate-limit, quota, timeout,
+        # provider-unavailable) must reach the API layer intact so it can map
+        # error_class → the correct HTTP status, exactly like /ai/suggest.
+        # Collapsing them into a generic ValueError would mask every provider
+        # error as a 400 and silently break the structured-error contract the
+        # /ai/generate-formula endpoint documents.
+        raise
     except Exception as e:
         logger.error(f"Formula generation failed: {e}", exc_info=True)
-        raise ValueError(f"Failed to generate formula: {str(e)}")
+        # Classify provider SDK exceptions (anthropic.RateLimitError, google
+        # 429s wrapped by langchain, httpx timeouts, …) into a typed error so
+        # the endpoint returns the same {error_class, message, …} detail as the
+        # suggest path. api_key is passed so any echoed key is redacted here.
+        raise classify_and_wrap(
+            e, provider=provider_name, api_key=api_key
+        ) from e

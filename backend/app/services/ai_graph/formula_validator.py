@@ -465,7 +465,7 @@ def validate_formula(
     result = ValidationResult()
     fixed = expression
     
-    _debug_log(f"  Formula validation started", min_level=2)
+    _debug_log("  Formula validation started", min_level=2)
     _debug_log(f"       Input: {expression[:80]}{'...' if len(expression) > 80 else ''}", min_level=2)
     _debug_log(f"       auto_fix: {auto_fix}", min_level=3)
     _debug_log(f"       valid_columns: {len(valid_columns)} available", min_level=3)
@@ -531,7 +531,7 @@ def validate_formula(
     if not has_result:
         if auto_fix:
             fixed = add_result_assignment(fixed)
-            _debug_log(f"         Auto-added result assignment", min_level=2)
+            _debug_log("         Auto-added result assignment", min_level=2)
         else:
             result.add_error("expression", error, "Add 'result = ' at the beginning")
     

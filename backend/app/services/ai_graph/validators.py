@@ -60,7 +60,7 @@ def validate_columns_exist(
     
     # Check x_axis - correlation type can have empty x_axis
     if suggestion.viz_type == "correlation" and not suggestion.x_axis:
-        _debug_log(f"       (correlation type - x_axis not required)", min_level=3)
+        _debug_log("       (correlation type - x_axis not required)", min_level=3)
     elif suggestion.x_axis and suggestion.x_axis not in valid_columns:
         matches = get_close_matches(suggestion.x_axis, list(valid_columns), n=1, cutoff=0.6)
         suggestion_text = f"Did you mean '{matches[0]}'?" if matches else "Check column name"
@@ -73,7 +73,7 @@ def validate_columns_exist(
     
     # For formula viz types, skip y_axes validation - 'result', 'result1', etc. are computed
     if suggestion.viz_type == "formula":
-        _debug_log(f"       (formula type - skipping y_axes validation)", min_level=3)
+        _debug_log("       (formula type - skipping y_axes validation)", min_level=3)
         return result
 
     # For KPI viz types, validate metric column references in additional_config.kpi_metrics
