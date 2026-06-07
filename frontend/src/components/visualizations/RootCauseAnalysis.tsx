@@ -157,7 +157,8 @@ export const RootCauseAnalysis: React.FC<RootCauseAnalysisProps> = ({
     // Derive view data up front. The early return that depends on it lives below
     // all the hooks so that hooks always run in the same order (rules-of-hooks).
     const rca = data.root_cause_analysis;
-    const ranking = rca?.ranking || [];
+    // Memoize so the chart-builder useMemos below don't see a new [] reference each render.
+    const ranking = useMemo(() => rca?.ranking || [], [rca]);
 
     const resultPlot = vizConfig?.root_cause?.result_plot || 'ranking';
 
@@ -276,7 +277,7 @@ export const RootCauseAnalysis: React.FC<RootCauseAnalysisProps> = ({
                 hovermode: 'closest' as const,
             },
         };
-    }, [ranking, mutedText, textColor, gridColor, rca?.target_variable, isDarkMode]);
+    }, [ranking, mutedText, gridColor, rca?.target_variable, isDarkMode]);
 
     // 3. METHOD BREAKDOWN — grouped bar showing per-method contributions
     const buildMethodBreakdown = useMemo((): { data: Data[]; layout: Partial<Layout> } => {
