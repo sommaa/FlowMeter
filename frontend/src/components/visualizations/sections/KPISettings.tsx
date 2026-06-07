@@ -78,13 +78,15 @@ export const KPISettings: React.FC<KPISettingsProps> = ({
     onUpdate,
     onOpenFormula,
 }) => {
-    if (config.viz_type !== 'kpi') return null;
-
-    const kpi = config.kpi;
+    // Hooks must run unconditionally — keep them above the early return below.
     const columnOptions = useMemo(
         () => numericColumns.map(c => ({ value: c, label: c })),
         [numericColumns],
     );
+
+    if (config.viz_type !== 'kpi') return null;
+
+    const kpi = config.kpi;
 
     const updateKpi = (updates: Partial<typeof kpi>) => {
         onUpdate({ kpi: { ...kpi, ...updates } });

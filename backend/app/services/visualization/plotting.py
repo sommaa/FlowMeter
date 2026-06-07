@@ -40,6 +40,12 @@ from app.services.visualization.processing import (
     COLORS
 )
 from app.services.visualization.regression import RegressionEngine
+from app.services.formula_safety import safe_exec
+
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def _parse_bounds(bounds_str: str) -> Optional[List[float]]:
     """Parse comma-separated bounds string to list of floats.
@@ -316,7 +322,7 @@ def generate_histogram_data(df: pd.DataFrame, config: VisualizationConfig) -> Pl
                 ))
             except Exception as e:
                 # Log error but continue (e.g., typically singular matrix for const data)
-                print(f"KDE generation failed for {col}: {e}")
+                logger.warning(f"KDE generation failed for {col}: {e}")
     
     y_label = get_y_label(config)
     
@@ -431,7 +437,7 @@ def generate_regression_data(df: pd.DataFrame, config: VisualizationConfig) -> P
     # Use configured X-Axis (Generic)
     x_data, x_label = get_x_data(df, config)
     
-    print(f"[DEBUG] Generating Regression: Model={config.regression.model_type}, Predictors={config.regression.predictors}, RemoveOutliers={config.regression.remove_outliers}, X-Axis={config.axis.x_axis}")
+    logger.debug(f"Generating Regression: Model={config.regression.model_type}, Predictors={config.regression.predictors}, RemoveOutliers={config.regression.remove_outliers}, X-Axis={config.axis.x_axis}")
     
     if not config.axis.y_axis:
         # Return empty response instead of error to allow UI configuration
@@ -723,9 +729,9 @@ def generate_formula_data(df: pd.DataFrame, config: VisualizationConfig) -> Plot
     
     namespace = {'col': work_df, 'np': np, 'pd': pd}
     
-    # Execute formula
+    # Execute formula (sandboxed: see app.services.formula_safety)
     try:
-        exec(config.formula.input, namespace)
+        safe_exec(config.formula.input, namespace)
     except KeyError as e:
         raise ValueError(f"Column not found in dataset: {e}")
     except SyntaxError as e:
@@ -858,7 +864,7 @@ def generate_formula_data(df: pd.DataFrame, config: VisualizationConfig) -> Plot
                          series.extend(ci_series)
 
             except Exception as e:
-                print(f"Regression failed for {label}: {e}")
+                logger.warning(f"Regression failed for {label}: {e}")
     
     # Legacy: Global regression if add_regression is enabled and no result_configs are used
     regression_line = None
@@ -1068,7 +1074,7 @@ def generate_universal_data(df: pd.DataFrame, config: VisualizationConfig) -> Pl
                         series.extend(ci_series)
                     
             except Exception as e:
-                print(f"Regression failed for {col}: {e}")
+                logger.warning(f"Regression failed for {col}: {e}")
 
     y_label = config.axis.y_label or "Values"
     

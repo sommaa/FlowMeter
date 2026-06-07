@@ -29,6 +29,7 @@ Performance optimization:
 import pandas as pd
 import json
 import functools
+import logging
 import os
 from typing import Optional
 
@@ -49,6 +50,9 @@ from app.services.visualization import plotting
 from app.services.visualization import fft
 from app.services.visualization import root_cause
 from app.services.visualization import kpi as kpi_module
+
+logger = logging.getLogger(__name__)
+
 
 class VisualizationService:
     """Orchestrates visualization data generation from datasets.
@@ -235,28 +239,28 @@ class VisualizationService:
             start_date = pd.to_datetime(config.date_range["start"])
             end_date = pd.to_datetime(config.date_range["end"])
 
-            print(f"[DEBUG] Filtering date range: {start_date} to {end_date}")
-            print(f"[DEBUG] Index type: {type(df.index)}")
+            logger.debug(f"[DEBUG] Filtering date range: {start_date} to {end_date}")
+            logger.debug(f"[DEBUG] Index type: {type(df.index)}")
             if hasattr(df.index, 'dtype'):
-                 print(f"[DEBUG] Index dtype: {df.index.dtype}")
+                 logger.debug(f"[DEBUG] Index dtype: {df.index.dtype}")
 
             # Check if index is datetime
             if isinstance(df.index, pd.DatetimeIndex):
                 # Ensure timezone awareness consistency
                 if start_date.tzinfo and df.index.tz is None:
-                     print("[DEBUG] Localizing index to UTC")
+                     logger.debug("[DEBUG] Localizing index to UTC")
                      df.index = df.index.tz_localize('UTC')
                 elif start_date.tzinfo is None and df.index.tz:
-                     print("[DEBUG] Converting start/end to offset-naive")
+                     logger.debug("[DEBUG] Converting start/end to offset-naive")
                      start_date = start_date.tz_localize(None)
                      end_date = end_date.tz_localize(None)
 
                 # Inclusive filtering
                 mask = (df.index >= start_date) & (df.index <= end_date)
                 df = df[mask]
-                print(f"[DEBUG] Rows after filtering: {len(df)}")
+                logger.debug(f"[DEBUG] Rows after filtering: {len(df)}")
             else:
-                print("[DEBUG] Index is NOT DatetimeIndex - skipping filter")
+                logger.debug("[DEBUG] Index is NOT DatetimeIndex - skipping filter")
                 pass
 
         # Route to appropriate handler based on visualization type

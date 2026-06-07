@@ -250,7 +250,7 @@ export const AISuggestionsPanel: React.FC<Props> = ({
                         <div className="flex gap-2 mt-3">
                             {showSettings && onOpenSettings && (
                                 <Button
-                                    variant="default"
+                                    variant="primary"
                                     size="sm"
                                     onClick={onOpenSettings}
                                 >

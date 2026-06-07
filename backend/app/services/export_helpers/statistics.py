@@ -22,6 +22,7 @@ from typing import List, Optional
 from sklearn.linear_model import LinearRegression
 from app.models.schemas import VisualizationConfig, ExportSettings
 from app.services.export_helpers.utils import filter_dataframe_by_date
+from app.services.formula_safety import safe_exec
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +91,7 @@ def compute_statistics(df: pd.DataFrame, visualizations: List[VisualizationConfi
                         'pd': pd,
                         'df': viz_df
                     }
-                    exec(viz.formula.input, namespace)
+                    safe_exec(viz.formula.input, namespace)
 
                     results = {}
                     if 'result' in namespace:

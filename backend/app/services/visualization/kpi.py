@@ -24,6 +24,7 @@ from app.models.schemas import (
     VisualizationConfig,
 )
 from app.services.export_helpers.utils import filter_dataframe_by_date
+from app.services.formula_safety import safe_eval
 
 
 _BUILTIN_OPS = {
@@ -174,7 +175,7 @@ def generate_kpi_data(
             if metric.operation == "formula":
                 if not metric.formula or not metric.formula.strip():
                     raise ValueError("Formula is empty")
-                raw = eval(metric.formula, namespace)  # noqa: S307 - same surface as global vars
+                raw = safe_eval(metric.formula, namespace)
                 value = _coerce_scalar(raw)
             else:
                 op = _BUILTIN_OPS.get(metric.operation)

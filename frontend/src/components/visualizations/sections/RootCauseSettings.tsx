@@ -141,23 +141,9 @@ const METHOD_OPTIONS = [
  * ```
  */
 export const RootCauseSettings: React.FC<RootCauseSettingsProps> = ({ config, numericColumns, onUpdate }) => {
-    if (config.viz_type !== 'root_cause') return null;
-
+    // Hooks must run unconditionally — keep them above the early return below.
     const rc = config.root_cause;
     const [variableFilter, setVariableFilter] = useState('');
-
-    const updateRC = (updates: Partial<typeof rc>) => {
-        onUpdate({ root_cause: { ...rc, ...updates } });
-    };
-
-    const targetOptions = numericColumns.map(col => ({ value: col, label: col }));
-
-    const toggleMethod = (method: string) => {
-        const methods = rc.methods.includes(method)
-            ? rc.methods.filter(m => m !== method)
-            : [...rc.methods, method];
-        updateRC({ methods });
-    };
 
     // Available variables = all numeric columns except the target
     const availableVariables = useMemo(() =>
@@ -171,6 +157,21 @@ export const RootCauseSettings: React.FC<RootCauseSettingsProps> = ({ config, nu
         const lower = variableFilter.toLowerCase();
         return availableVariables.filter(col => col.toLowerCase().includes(lower));
     }, [availableVariables, variableFilter]);
+
+    if (config.viz_type !== 'root_cause') return null;
+
+    const updateRC = (updates: Partial<typeof rc>) => {
+        onUpdate({ root_cause: { ...rc, ...updates } });
+    };
+
+    const targetOptions = numericColumns.map(col => ({ value: col, label: col }));
+
+    const toggleMethod = (method: string) => {
+        const methods = rc.methods.includes(method)
+            ? rc.methods.filter(m => m !== method)
+            : [...rc.methods, method];
+        updateRC({ methods });
+    };
 
     // Which variables are included (if include_variables is empty, all are included)
     const includedVars = rc.include_variables || [];

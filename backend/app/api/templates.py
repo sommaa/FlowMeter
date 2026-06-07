@@ -34,11 +34,64 @@ from app.models.schemas import (
     TemplateConfig,
     VisualizationConfig
 )
+from app.services.formula_safety import assert_formula_safe, UnsafeFormulaError
 
 import logging
 
 router = APIRouter(tags=["Templates"])
 logger = logging.getLogger(__name__)
+
+
+def _collect_template_formulas(template: TemplateConfig) -> List[tuple]:
+    """Return ``(location_label, formula)`` pairs that the render paths eval/exec.
+
+    Only the formulas that are actually executed are collected, so saving a
+    template does not reject benign placeholder formula text carried by
+    non-formula visualizations.
+    """
+    items: List[tuple] = []
+
+    for gv in template.global_variables:
+        if gv.formula and gv.formula.strip():
+            items.append((f"global variable '{gv.name}'", gv.formula))
+
+    for i, viz in enumerate(template.visualizations):
+        label = viz.title or f"visualization {i + 1}"
+        viz_type = viz.viz_type.value if hasattr(viz.viz_type, "value") else str(viz.viz_type)
+
+        if viz_type == "formula" and viz.formula and viz.formula.input and viz.formula.input.strip():
+            items.append((f"{label} formula", viz.formula.input))
+
+        x_axis = getattr(viz.axis, "x_axis", None) if viz.axis else None
+        if x_axis == "Custom Formula" and viz.formula and viz.formula.x_formula and viz.formula.x_formula.strip():
+            items.append((f"{label} X-axis formula", viz.formula.x_formula))
+
+        if viz.kpi and viz.kpi.metrics:
+            for metric in viz.kpi.metrics:
+                if metric.operation == "formula" and metric.formula and metric.formula.strip():
+                    items.append((f"{label} KPI '{metric.label}'", metric.formula))
+
+        reg = viz.regression
+        if reg and getattr(reg, "model_type", None) == "custom":
+            custom_formula = getattr(reg, "custom_formula", None)
+            if custom_formula and custom_formula.strip():
+                items.append((f"{label} regression formula", custom_formula))
+
+    return items
+
+
+def assert_template_formulas_safe(template: TemplateConfig) -> None:
+    """Reject a template whose formulas would run disallowed code on render.
+
+    Defense in depth: every formula is also re-validated at evaluation time, but
+    rejecting on save/import fails fast and keeps malicious templates out of the
+    shared server-side store. Raises HTTPException 400 on the first unsafe formula.
+    """
+    for label, formula in _collect_template_formulas(template):
+        try:
+            assert_formula_safe(formula)
+        except UnsafeFormulaError as exc:
+            raise HTTPException(status_code=400, detail=f"Unsafe formula in {label}: {exc}")
 
 # Constants
 TEMPLATE_DIR = os.path.join("data", "templates")
@@ -279,7 +332,10 @@ async def save_persistent_template(request: SaveTemplateRequest):
         safe_name = "".join([c for c in request.name if c.isalpha() or c.isdigit() or c in (' ', '-', '_')]).strip()
         if not safe_name:
              raise HTTPException(status_code=400, detail="Invalid template name")
-             
+
+        # Refuse to persist a shared template containing unsafe formulas.
+        assert_template_formulas_safe(request.config)
+
         filepath = os.path.join(TEMPLATE_DIR, f"{safe_name}.json")
         
         if os.path.exists(filepath) and not request.overwrite:
@@ -411,7 +467,10 @@ async def save_template(template: TemplateConfig):
         # Validate template
         if not template.visualizations:
             raise HTTPException(status_code=400, detail="Template must contain at least one visualization")
-        
+
+        # Block download/export of a template carrying unsafe formulas.
+        assert_template_formulas_safe(template)
+
         # Ensure created timestamp is set
         if not template.created:
              template.created = datetime.now()
@@ -531,7 +590,14 @@ async def validate_template(template: TemplateConfig):
         
         if viz.viz_type.value in ['line', 'scatter', 'bar'] and not viz.y_axis:
             errors.append(f"Visualization {i+1} ({viz.title}): Y-axis is required")
-    
+
+    # Surface unsafe formulas as blocking validation errors.
+    for label, formula in _collect_template_formulas(template):
+        try:
+            assert_formula_safe(formula)
+        except UnsafeFormulaError as exc:
+            errors.append(f"Unsafe formula in {label}: {exc}")
+
     return APIResponse(
         success=len(errors) == 0,
         data={

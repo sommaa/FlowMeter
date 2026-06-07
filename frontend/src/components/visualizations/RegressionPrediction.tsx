@@ -328,7 +328,6 @@ export const RegressionPrediction: React.FC<RegressionPredictionProps> = ({ mode
                     custom_initial_guesses: savedModel.type === 'custom' ? savedModel.custom_initial_guesses : undefined
                 }
             };
-            console.log("Syncing model_type with saved model:", savedModel.name, updates);
             onConfigUpdate(updates);
         }
     }, [config.saved_model_name, savedModels, onConfigUpdate]);

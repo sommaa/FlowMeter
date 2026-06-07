@@ -26,6 +26,7 @@ from app.services.data_service import get_data_service
 from app.services.export_service import DashboardExporter
 from app.services.visualization_service import VisualizationService
 from app.services.visualization.processing import compute_global_variables
+from app.services.formula_safety import safe_exec
 from app.models.schemas import VisualizationConfig, ExportSettings, GlobalVariable, StorylineEvent, DataExportRequest
 from app.core.config import get_settings
 
@@ -230,7 +231,7 @@ async def export_data(request: DataExportRequest, background_tasks: BackgroundTa
 
                 namespace = {'col': work_df, 'np': np, 'pd': pd}
                 try:
-                    exec(viz.formula.input, namespace)
+                    safe_exec(viz.formula.input, namespace)
                 except Exception as e:
                     logger.warning(f"Formula '{viz.title}' failed: {e}")
                     continue

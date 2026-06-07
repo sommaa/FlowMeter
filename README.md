@@ -834,6 +834,9 @@ With a chart created, explore the configuration panel on the right side of each 
 > [!TIP]
 > Use **Export Template** to download the JSON file and share with colleagues. They can **Import Template** on their own FlowMeter instance to instantly replicate your dashboard.
 
+> [!CAUTION]
+> Templates can contain custom formulas that run on your machine when the dashboard renders. FlowMeter sandboxes formula evaluation (no imports, no file or system access — only numpy/pandas math), but you should still **only import templates from sources you trust**. See [SECURITY.md](SECURITY.md).
+
 ---
 
 ### Step 10: Export a Report

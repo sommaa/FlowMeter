@@ -14,6 +14,7 @@ import pandas as pd
 import numpy as np
 from typing import Any, Tuple, List, Optional
 from app.models.schemas import VisualizationConfig, GlobalVariable
+from app.services.formula_safety import safe_eval
 
 import logging
 import re
@@ -80,8 +81,8 @@ def compute_global_variables(df: pd.DataFrame, global_variables: list[GlobalVari
                 if prev_gv.name in df.columns:
                     namespace[prev_gv.name] = df[prev_gv.name]
             
-            # Evaluate formula
-            result = eval(gv.formula, namespace)
+            # Evaluate formula (sandboxed: see app.services.formula_safety)
+            result = safe_eval(gv.formula, namespace)
             
             # Add result as column
             if isinstance(result, (pd.Series, np.ndarray)):
@@ -126,7 +127,7 @@ def get_x_data(df: pd.DataFrame, config: VisualizationConfig) -> Tuple[List[Any]
             work_df['Index'] = work_df.index
             work_df['Index'] = work_df.index
             namespace = {'col': work_df, 'np': np, 'pd': pd}
-            x_data = eval(config.formula.x_formula, namespace)
+            x_data = safe_eval(config.formula.x_formula, namespace)
             if isinstance(x_data, pd.Series):
                 x_data = x_data.tolist()
             x_label = config.axis.x_label or "Custom X"

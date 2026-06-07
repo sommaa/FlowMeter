@@ -165,7 +165,6 @@ export const FileUpload: React.FC = () => {
     (acceptedFiles: File[]) => {
       const file = acceptedFiles[0];
       if (file) {
-        console.log('[FileUpload] File dropped:', file.name);
         setSelectedFile(file);
         // Column names will be available after upload - backend extracts them securely
         setColumnNames([]);
@@ -176,7 +175,6 @@ export const FileUpload: React.FC = () => {
   );
 
   const handleCleaningUpload = (config: CleaningConfig) => {
-    console.log('[FileUpload] Starting upload with config:', config);
     if (selectedFile) {
       uploadFile(selectedFile, config);
       setCleaningOpen(false);

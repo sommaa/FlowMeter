@@ -41,6 +41,7 @@ from app.models.schemas import (
 )
 from app.services.export_helpers.utils import hex_to_rgb
 from app.services.visualization.processing import downsample_series
+from app.services.formula_safety import assert_no_escape
 
 MODEL_DIR = os.path.join("data", "models")
 """Directory path for storing trained model files."""
@@ -169,7 +170,8 @@ class CustomRegressionWrapper:
         # Also support 'x' if single predictor
         if len(self.predictors) == 1:
              local_ctx['x'] = ctx[self.predictors[0]]
-             
+
+        assert_no_escape(self.formula)
         return eval(self.formula, {"__builtins__": {}}, local_ctx)
 
 
@@ -311,6 +313,9 @@ class RegressionEngine:
             Exception: If curve fitting fails.
         """
         try:
+            # Reject unsafe formulas once, before curve_fit calls func() repeatedly.
+            assert_no_escape(formula)
+
             # Create a wrapper function for curve_fit
             # signature: f(x, *params)
             def func(x, *params, ctx=None):
@@ -829,7 +834,7 @@ class RegressionEngine:
             # Handle NaN in predictions (can occur with division by zero in custom formulas)
             valid_mask = ~np.isnan(y_pred_clean) & ~np.isinf(y_pred_clean)
             if np.sum(valid_mask) < 2:
-                print("Warning: Too few valid predictions after NaN removal")
+                logger.warning("Too few valid predictions after NaN removal")
                 mse = 0
                 mae = 0
             else:
@@ -858,6 +863,7 @@ class RegressionEngine:
                          y_line = y_pred_clean[sort_idx]
                      else:
                          # Simple formula without col[] - can generate smooth line
+                         assert_no_escape(custom_formula)
                          def func_pred(x, *params):
                             local_ctx = {"x": x}
                             local_ctx.update(dict(zip(custom_params, params)))
@@ -1011,7 +1017,7 @@ class RegressionEngine:
                     )
                 ]
             except Exception as e:
-                print(f"CI Calculation failed: {e}")
+                logger.warning(f"CI Calculation failed: {e}")
                 ci_series = []
                 # If x_line setup failed, we might need a fallback for x_line to plot the main line?
                 # Actually, the main line plotting (line_data) relies on x_line too.
@@ -1031,7 +1037,7 @@ class RegressionEngine:
             return main_series, ci_series, reg_model
             
         except Exception as e:
-            print(f"Regression error: {e}")
+            logger.warning(f"Regression error: {e}")
             import traceback
             traceback.print_exc()
             return None, [], None
@@ -1094,12 +1100,12 @@ class RegressionEngine:
                 return None, [], None, None
             
             # Drop NaNs
-            print(f"[DEBUG] Dropping NaNs. Before: {len(df)}")
+            logger.debug(f"[DEBUG] Dropping NaNs. Before: {len(df)}")
             data = df[req_cols].dropna()
-            print(f"[DEBUG] After dropna: {len(data)}")
+            logger.debug(f"[DEBUG] After dropna: {len(data)}")
             
             if len(data) < 2:
-                print("[DEBUG] <2 points remaining after dropna")
+                logger.debug("[DEBUG] <2 points remaining after dropna")
                 return None, [], None, None
             
 
@@ -1153,25 +1159,25 @@ class RegressionEngine:
             # --- OUTLIER REMOVAL (IQR Method) ---
             if config.regression.remove_outliers:
                 iqr_multiplier = config.regression.iqr_multiplier or 1.5
-                print(f"[DEBUG] Multivariable Outlier removal enabled. iqr_multiplier={iqr_multiplier}, points before: {len(y)}")
+                logger.debug(f"[DEBUG] Multivariable Outlier removal enabled. iqr_multiplier={iqr_multiplier}, points before: {len(y)}")
                 q1 = np.percentile(y, 25)
                 q3 = np.percentile(y, 75)
                 iqr = q3 - q1
                 
                 lower_bound = q1 - iqr_multiplier * iqr
                 upper_bound = q3 + iqr_multiplier * iqr
-                print(f"[DEBUG] Bounds: lower={lower_bound}, upper={upper_bound}")
+                logger.debug(f"[DEBUG] Bounds: lower={lower_bound}, upper={upper_bound}")
                 
                 valid_mask = (y >= lower_bound) & (y <= upper_bound)
                 
                 # Update X and y for training
                 X = X[valid_mask]
                 y = y[valid_mask]
-                print(f"[DEBUG] Points after outlier filter: {len(y)}")
-                print(f"[DEBUG] X shape after filter: {X.shape}")
+                logger.debug(f"[DEBUG] Points after outlier filter: {len(y)}")
+                logger.debug(f"[DEBUG] X shape after filter: {X.shape}")
                 
                 if len(y) < 2:
-                        print("[DEBUG] <2 points remaining after outlier removal")
+                        logger.debug("[DEBUG] <2 points remaining after outlier removal")
                         return None, [], None, None
             # ---------------------------------------------------------
             
@@ -1189,7 +1195,7 @@ class RegressionEngine:
             model_type = config.regression.model_type
             use_ridge = (model_type == 'ridge')
             
-            print(f"[DEBUG] Training model: {model_type} on {len(y)} samples")
+            logger.debug(f"[DEBUG] Training model: {model_type} on {len(y)} samples")
             
             # Train on filtered data
             model, poly, r2, _ = RegressionEngine.train_model(
@@ -1204,9 +1210,9 @@ class RegressionEngine:
             )
             
             if model is None:
-                print("[DEBUG] Model training returned None!")
+                logger.debug("[DEBUG] Model training returned None!")
             else:
-                print(f"[DEBUG] Model trained successfully. R2={r2}")
+                logger.debug(f"[DEBUG] Model trained successfully. R2={r2}")
 
             # Predict on FULL range for plotting
             if model:
@@ -1295,11 +1301,11 @@ class RegressionEngine:
             
             # Debug output stats
             if len(y_vals) > 0:
-                 print(f"[DEBUG] Generated {len(y_vals)} points. Y Min: {min(y_vals)}, Y Max: {max(y_vals)}")
-                 print(f"[DEBUG] Sample X: {x_vals[:3]}")
-                 print(f"[DEBUG] Sample Y: {y_vals[:3]}")
+                 logger.debug(f"[DEBUG] Generated {len(y_vals)} points. Y Min: {min(y_vals)}, Y Max: {max(y_vals)}")
+                 logger.debug(f"[DEBUG] Sample X: {x_vals[:3]}")
+                 logger.debug(f"[DEBUG] Sample Y: {y_vals[:3]}")
             else:
-                 print("[DEBUG] Generated 0 points!")
+                 logger.debug("[DEBUG] Generated 0 points!")
 
             # Downsample
             ds_x, ds_y = downsample_series(x_vals, y_vals)
@@ -1377,7 +1383,7 @@ class RegressionEngine:
                     )
                 ]
             except Exception as e:
-                print(f"CI Calculation failed: {e}")
+                logger.warning(f"CI Calculation failed: {e}")
                 # Continue without CI
             # Create RegressionModel
             reg_type = "linear"
@@ -1403,7 +1409,7 @@ class RegressionEngine:
             return main_series, ci_series, full_eq, reg_model
 
         except Exception as e:
-            # print(f"Multi-var regression error: {e}")
+            # logger.debug(f"Multi-var regression error: {e}")
             return None, [], None, None
 
     @staticmethod
@@ -1571,7 +1577,7 @@ class RegressionEngine:
                      # Verify predictors match
                      saved_predictors = saved_data.get('predictors', [])
                      if set(saved_predictors) != set(predictors):
-                         print(f"Saved model predictors {saved_predictors} mismatch current {predictors}, falling back to training.")
+                         logger.warning(f"Saved model predictors {saved_predictors} mismatch current {predictors}, falling back to training.")
                          # Fallback to training
                      else:
                         model = saved_data['model']
@@ -1632,9 +1638,9 @@ class RegressionEngine:
                            
                         return float(prediction)
                  else:
-                     print(f"Saved model {config.saved_model_name} not found, falling back to training.")
+                     logger.warning(f"Saved model {config.saved_model_name} not found, falling back to training.")
              except Exception as e:
-                 print(f"Error loading model {config.saved_model_name}: {e}, falling back to training.")
+                 logger.warning(f"Error loading model {config.saved_model_name}: {e}, falling back to training.")
 
 
         # Train Model
@@ -1703,6 +1709,7 @@ class RegressionEngine:
                 local_ctx['col'] = inputs
                 
                 # Evaluate the formula with fitted params and input values
+                assert_no_escape(custom_formula)
                 prediction = eval(custom_formula, {"__builtins__": {}}, local_ctx)
                 return float(prediction)
             
@@ -1720,7 +1727,7 @@ class RegressionEngine:
                       
             return float(prediction)
         except Exception as e:
-            print(f"Prediction Error during training/predict: {e}")
+            logger.warning(f"Prediction Error during training/predict: {e}")
             raise e
 
     @staticmethod

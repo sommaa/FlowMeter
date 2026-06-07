@@ -154,11 +154,10 @@ export const RootCauseAnalysis: React.FC<RootCauseAnalysisProps> = ({
     const plotRef = React.useRef<any>(null);
     const [revision, setRevision] = React.useState(0);
 
+    // Derive view data up front. The early return that depends on it lives below
+    // all the hooks so that hooks always run in the same order (rules-of-hooks).
     const rca = data.root_cause_analysis;
-    if (!rca) return null;
-
-    const ranking = rca.ranking || [];
-    if (ranking.length === 0) return null;
+    const ranking = rca?.ranking || [];
 
     const resultPlot = vizConfig?.root_cause?.result_plot || 'ranking';
 
@@ -202,7 +201,7 @@ export const RootCauseAnalysis: React.FC<RootCauseAnalysisProps> = ({
             } as Data],
             layout: {
                 margin: { l: 10, r: 50, t: 28, b: 30 },
-                title: { text: `Root Cause → ${rca.target_variable}`, font: { size: 12, color: mutedText }, x: 0.01, xanchor: 'left' },
+                title: { text: `Root Cause → ${rca?.target_variable}`, font: { size: 12, color: mutedText }, x: 0.01, xanchor: 'left' },
                 xaxis: {
                     title: { text: 'Score', font: { color: mutedText, size: 10 } },
                     gridcolor: gridColor,
@@ -213,7 +212,7 @@ export const RootCauseAnalysis: React.FC<RootCauseAnalysisProps> = ({
                 bargap: 0.25,
             },
         };
-    }, [ranking, mutedText, textColor, gridColor, rca.target_variable]);
+    }, [ranking, mutedText, textColor, gridColor, rca?.target_variable]);
 
     // 2. CORRELATION vs LAG — scatter plot
     const buildCorrelationLagChart = useMemo((): { data: Data[]; layout: Partial<Layout> } => {
@@ -252,7 +251,7 @@ export const RootCauseAnalysis: React.FC<RootCauseAnalysisProps> = ({
             data: traces,
             layout: {
                 margin: { l: 55, r: 20, t: 28, b: 50 },
-                title: { text: `Correlation vs Lag → ${rca.target_variable}`, font: { size: 12, color: mutedText }, x: 0.01, xanchor: 'left' },
+                title: { text: `Correlation vs Lag → ${rca?.target_variable}`, font: { size: 12, color: mutedText }, x: 0.01, xanchor: 'left' },
                 xaxis: {
                     title: { text: 'Lag (samples)', font: { color: mutedText, size: 11 } },
                     gridcolor: gridColor,
@@ -277,7 +276,7 @@ export const RootCauseAnalysis: React.FC<RootCauseAnalysisProps> = ({
                 hovermode: 'closest' as const,
             },
         };
-    }, [ranking, mutedText, textColor, gridColor, rca.target_variable, isDarkMode]);
+    }, [ranking, mutedText, textColor, gridColor, rca?.target_variable, isDarkMode]);
 
     // 3. METHOD BREAKDOWN — grouped bar showing per-method contributions
     const buildMethodBreakdown = useMemo((): { data: Data[]; layout: Partial<Layout> } => {
@@ -310,7 +309,7 @@ export const RootCauseAnalysis: React.FC<RootCauseAnalysisProps> = ({
             data: traces,
             layout: {
                 margin: { l: 50, r: 20, t: 28, b: 80 },
-                title: { text: `Method Breakdown → ${rca.target_variable}`, font: { size: 12, color: mutedText }, x: 0.01, xanchor: 'left' },
+                title: { text: `Method Breakdown → ${rca?.target_variable}`, font: { size: 12, color: mutedText }, x: 0.01, xanchor: 'left' },
                 barmode: 'group',
                 xaxis: {
                     tickfont: { color: mutedText, size: 9 },
@@ -331,7 +330,7 @@ export const RootCauseAnalysis: React.FC<RootCauseAnalysisProps> = ({
                 },
             },
         };
-    }, [ranking, mutedText, gridColor, rca.target_variable]);
+    }, [ranking, mutedText, gridColor, rca?.target_variable]);
 
     // ───────────────────── Select active chart ─────────────────────
 
@@ -377,6 +376,9 @@ export const RootCauseAnalysis: React.FC<RootCauseAnalysisProps> = ({
             window.dispatchEvent(new Event('resize'));
         }
     }, [isSidebarTransitioning]);
+
+    // All hooks above run unconditionally; bail out here now that they're registered.
+    if (!rca || ranking.length === 0) return null;
 
     // ───────────────────── Legend (only for ranking mode) ─────────────────────
 
