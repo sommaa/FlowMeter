@@ -2,7 +2,7 @@
  * File Upload Component with drag-and-drop support and data cleaning integration.
  *
  * This component provides the primary data ingestion interface for the application,
- * supporting Excel (.xlsx, .xls) and CSV files. It implements a two-stage upload process:
+ * supporting Excel (.xlsx, .xls), CSV, and Parquet (.parquet, .pqt) files. It implements a two-stage upload process:
  * 1. File selection (drag-and-drop or click to browse)
  * 2. Data cleaning configuration (via modal)
  *
@@ -16,7 +16,7 @@
  * - Live dataset statistics display (rows, columns, memory, date range)
  * - Column type breakdown (numeric, datetime, other)
  * - Clear dataset functionality
- * - File type validation (Excel and CSV only)
+ * - File type validation (Excel, CSV, and Parquet only)
  * - Loading state management
  * - Error display
  *
@@ -68,10 +68,10 @@ import { CleaningConfig } from '@/types';
  * - Dashed border rectangle (hover highlights border)
  * - Upload icon centered at top
  * - Instructions:
- *   - Default: "Drag & drop your Excel file here" + "or click to browse (.xlsx, .xls, .csv)"
+ *   - Default: "Drag & drop your Excel file here" + "or click to browse (.xlsx, .xls, .csv, .parquet, .pqt)"
  *   - Dragging: "Drop your file here" (primary color)
  *   - Loading: "Processing..."
- * - Accept types: Excel (.xlsx, .xls), CSV (.csv)
+ * - Accept types: Excel (.xlsx, .xls), CSV (.csv), Parquet (.parquet, .pqt)
  * - Max files: 1 (single file upload only)
  * - Disabled during loading
  *
@@ -209,6 +209,9 @@ export const FileUpload: React.FC = () => {
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
       'application/vnd.ms-excel': ['.xls'],
       'text/csv': ['.csv'],
+      // Parquet has no universally-registered MIME type; match by extension.
+      'application/vnd.apache.parquet': ['.parquet', '.pqt'],
+      'application/octet-stream': ['.parquet', '.pqt'],
     },
     maxFiles: 1,
     disabled: isLoading,
@@ -247,7 +250,7 @@ export const FileUpload: React.FC = () => {
             <input
               ref={updateInputRef}
               type="file"
-              accept=".xlsx,.xls,.csv"
+              accept=".xlsx,.xls,.csv,.parquet,.pqt"
               className="hidden"
               onChange={handleUpdateFileSelect}
               data-testid="update-file-input"
@@ -376,7 +379,7 @@ export const FileUpload: React.FC = () => {
                   Drag & drop your Excel file here
                 </p>
                 <p className="text-sm text-slate-400 dark:text-gray-500 mt-1">
-                  or click to browse (.xlsx, .xls, .csv)
+                  or click to browse (.xlsx, .xls, .csv, .parquet, .pqt)
                 </p>
               </>
             )}

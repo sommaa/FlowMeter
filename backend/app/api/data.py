@@ -2,7 +2,7 @@
 FastAPI routes for dataset upload and management operations.
 
 This module provides REST API endpoints for:
-    - File upload (Excel/CSV) with optional cleaning configuration
+    - File upload (Excel/CSV/Parquet) with optional cleaning configuration
     - Dataset listing and metadata retrieval
     - Dataset deletion
     - Statistics computation
@@ -43,14 +43,14 @@ async def upload_file(
     file: UploadFile = File(...),
     cleaning_config: Optional[str] = Form(None)
 ):
-    """Upload and process an Excel or CSV file.
+    """Upload and process an Excel, CSV, or Parquet file.
 
     Validates file type and size, then loads the dataset into memory with
     optional cleaning configuration. Automatically detects datetime columns,
     infers types, and generates comprehensive metadata.
 
     Validation:
-        - File extension must be in allowed_extensions (.xlsx, .xls, .csv)
+        - File extension must be in allowed_extensions (.xlsx, .xls, .csv, .parquet, .pqt)
         - File size must be under max_file_size_mb limit
 
     Args:

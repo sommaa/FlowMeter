@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     
     # File Upload
     max_file_size_mb: int = 50
-    allowed_extensions: list[str] = [".xlsx", ".xls", ".csv"]
+    allowed_extensions: list[str] = [".xlsx", ".xls", ".csv", ".parquet", ".pqt"]
     upload_dir: str = "uploads"
     
     # Data Storage (in-memory for MVP, can extend to Redis/DB)

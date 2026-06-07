@@ -31,6 +31,27 @@ def csv_with_dates():
     return csv_content.encode("utf-8")
 
 
+@pytest.fixture
+def parquet_bytes():
+    """Create a simple Parquet file as bytes."""
+    df = pd.DataFrame({"x": [1, 4, 7], "y": [2, 5, 8], "z": [3, 6, 9]})
+    buffer = BytesIO()
+    df.to_parquet(buffer)
+    return buffer.getvalue()
+
+
+@pytest.fixture
+def parquet_with_dates():
+    """Create a Parquet file with a datetime-typed column."""
+    df = pd.DataFrame({
+        "Date": pd.to_datetime(["2023-01-01", "2023-01-02", "2023-01-03"]),
+        "Value": [10, 20, 30],
+    })
+    buffer = BytesIO()
+    df.to_parquet(buffer)
+    return buffer.getvalue()
+
+
 class TestLoadExcel:
     """Tests for loading datasets."""
 
@@ -46,6 +67,27 @@ class TestLoadExcel:
 
     def test_load_csv_with_dates(self, service, csv_with_dates):
         info = service.load_excel(csv_with_dates, "dates.csv")
+        assert info.rows == 3
+        assert len(info.datetime_columns) > 0
+
+    def test_load_parquet(self, service, parquet_bytes):
+        info = service.load_excel(parquet_bytes, "test.parquet")
+        assert info.name == "test.parquet"
+        assert info.rows == 3
+        assert info.columns == 3
+        assert "x" in info.column_names
+        assert "y" in info.column_names
+        assert "z" in info.column_names
+        assert len(info.numeric_columns) == 3
+
+    def test_load_parquet_pqt_extension(self, service, parquet_bytes):
+        info = service.load_excel(parquet_bytes, "test.pqt")
+        assert info.name == "test.pqt"
+        assert info.rows == 3
+        assert info.columns == 3
+
+    def test_load_parquet_with_dates(self, service, parquet_with_dates):
+        info = service.load_excel(parquet_with_dates, "dates.parquet")
         assert info.rows == 3
         assert len(info.datetime_columns) > 0
 

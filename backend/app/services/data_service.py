@@ -6,7 +6,7 @@ lifecycle operations including loading, storage, retrieval, and statistics
 computation. Acts as the central data repository for the application.
 
 Key responsibilities:
-    - File upload processing (Excel, CSV)
+    - File upload processing (Excel, CSV, Parquet)
     - Automatic datetime column detection and parsing
     - Data cleaning and preprocessing via CleaningService
     - In-memory dataset storage with metadata tracking
@@ -64,14 +64,14 @@ class DataService:
 
     @profile_performance
     def load_excel(self, file_content: bytes, filename: str, config: Optional[CleaningConfig] = None) -> DatasetInfo:
-        """Load an Excel or CSV file into memory with automatic preprocessing.
+        """Load an Excel, CSV, or Parquet file into memory with automatic preprocessing.
 
         Reads the uploaded file, applies optional cleaning configuration,
         attempts to detect and parse datetime columns, and generates
         comprehensive metadata about the dataset.
 
         Processing pipeline:
-            1. Read file (Excel or CSV) with configurable header row
+            1. Read file (Excel/CSV with configurable header row, or Parquet)
             2. Apply cleaning rules (CleaningService)
             3. Parse datetime columns and set as index if found
             4. Apply resampling/aggregation if configured
@@ -80,7 +80,7 @@ class DataService:
             7. Generate and store metadata
 
         Args:
-            file_content: Raw bytes of the uploaded Excel/CSV file.
+            file_content: Raw bytes of the uploaded Excel/CSV/Parquet file.
             filename: Original filename (used for type detection and metadata).
             config: Optional CleaningConfig for preprocessing (header row,
                 column removal, resampling, etc.).
@@ -105,6 +105,10 @@ class DataService:
         # Read with specified header row
         if filename.endswith('.csv'):
             df = pd.read_csv(buffer, header=header_row)
+        elif filename.endswith(('.parquet', '.pqt')):
+            # Parquet is self-describing (embedded schema/dtypes), so there is
+            # no header row concept; header_row from the cleaning config is N/A.
+            df = pd.read_parquet(buffer)
         else:
             df = pd.read_excel(buffer, header=header_row)
             

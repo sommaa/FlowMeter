@@ -40,6 +40,27 @@ class TestUploadFile:
         assert data["success"] is True
         assert "rows" in data["message"]
 
+    def test_upload_parquet_success(self, client):
+        import pandas as pd
+
+        df = pd.DataFrame({"x": [1, 4], "y": [2, 5], "z": [3, 6]})
+        buffer = io.BytesIO()
+        df.to_parquet(buffer)
+        response = client.post(
+            "/api/v1/data/upload",
+            files={
+                "file": (
+                    "data.parquet",
+                    io.BytesIO(buffer.getvalue()),
+                    "application/octet-stream",
+                )
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert "rows" in data["message"]
+
     def test_upload_with_cleaning_config(self, client):
         csv_content = b"x,y\n1,2\n3,4\n"
         config = '{"header_row": 0, "nan_strategy": "none"}'

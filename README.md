@@ -643,7 +643,7 @@ This section walks first-time users through every major feature, step by step.
 
 ### Step 1: Import Your Data
 
-**What you need:** A `.csv`, `.xlsx`, or `.xls` file with your process data.
+**What you need:** A `.csv`, `.xlsx`, `.xls`, or `.parquet` (`.pqt`) file with your process data.
 
 1. When you first launch FlowMeter, the **Onboarding Wizard** appears automatically
 2. Click **Upload File** or drag and drop your file onto the upload zone

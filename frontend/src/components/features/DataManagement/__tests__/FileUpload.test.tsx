@@ -85,7 +85,7 @@ describe('FileUpload', () => {
   it('renders the dropzone when no dataset is loaded', () => {
     render(<FileUpload />);
     expect(screen.getByText('Drag & drop your Excel file here')).toBeInTheDocument();
-    expect(screen.getByText('or click to browse (.xlsx, .xls, .csv)')).toBeInTheDocument();
+    expect(screen.getByText('or click to browse (.xlsx, .xls, .csv, .parquet, .pqt)')).toBeInTheDocument();
   });
 
   it('shows "Processing..." when loading', () => {
