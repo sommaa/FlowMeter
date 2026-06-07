@@ -67,6 +67,9 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
         if (debouncedValue !== value) {
             onChange(debouncedValue);
         }
+        // Intentionally re-run only when the debounced value settles. Depending on
+        // `value` would fire onChange with a stale value when the parent updates it.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [debouncedValue]);
 
     const handleHexChange = (e: React.ChangeEvent<HTMLInputElement>) => {

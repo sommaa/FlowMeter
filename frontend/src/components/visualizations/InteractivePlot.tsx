@@ -464,7 +464,7 @@ export const InteractivePlotComponent: React.FC<InteractivePlotProps> = ({
     if (finalTraces.length > 0) {
     }
     return finalTraces;
-  }, [data, vizConfig, storylineEvents, isStorylineEnabled]);
+  }, [data, vizConfig]);
 
   const layout: Partial<Layout> = useMemo(() => {
     try {
@@ -831,7 +831,7 @@ export const InteractivePlotComponent: React.FC<InteractivePlotProps> = ({
       console.error("Layout calculation failed:", err);
       return { title: { text: "Layout Error" } };
     }
-  }, [data, isDarkMode, vizConfig, storylineEvents, isStorylineEnabled]);
+  }, [data, isDarkMode, vizConfig, storylineEvents, isStorylineEnabled, height]);
 
   // Plotly config (Memoized)
   const plotlyConfig: Partial<Config> = useMemo(() => ({

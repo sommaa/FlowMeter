@@ -172,8 +172,9 @@ export const VisualizationCard: React.FC<VisualizationCardProps> = ({
   const baseAllColumns = useStore(selectAllColumns);
   const globalVariables = useStore(selectGlobalVariables);
 
-  // Get datetime columns from currentDataset
-  const datetimeColumns = currentDataset?.datetime_columns ?? [];
+  // Get datetime columns from currentDataset (memoized so the `?? []` fallback
+  // doesn't create a new array reference and recompute the memos below each render).
+  const datetimeColumns = useMemo(() => currentDataset?.datetime_columns ?? [], [currentDataset?.datetime_columns]);
 
   // Combine base columns with global variable names and datetime columns using useMemo to avoid infinite re-renders
   const numericColumns = useMemo(() => {
@@ -245,7 +246,7 @@ export const VisualizationCard: React.FC<VisualizationCardProps> = ({
     if (needsRefresh && !isSwitchingToFormula) {
       debouncedRefresh();
     }
-  }, [config.id, config.viz_type, updateVisualization, debouncedRefresh]);
+  }, [config.id, config.viz_type, config.axis.multi_axis_plot_type, config.formula?.input, updateVisualization, debouncedRefresh]);
 
   // Profiler disabled for production performance
   return (

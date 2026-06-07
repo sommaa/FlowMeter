@@ -258,6 +258,9 @@ export const FormulaEditorModal: React.FC<FormulaEditorModalProps> = ({
 
             loadProviders();
         }
+        // Load providers once when the modal opens. aiSettings is read as a snapshot;
+        // depending on it would re-fetch providers on every settings change.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen]);
 
     // Update settings when provider changes
@@ -408,7 +411,7 @@ export const FormulaEditorModal: React.FC<FormulaEditorModalProps> = ({
         } finally {
             setIsGenerating(false);
         }
-    }, [aiSettings, selectedColumns, aiDescription, columnDescriptions, allSelectedHaveDescriptions, currentDataset]);
+    }, [aiSettings, selectedModel, selectedColumns, aiDescription, columnDescriptions, allSelectedHaveDescriptions, currentDataset]);
 
     // Sync local formula when modal opens or initialFormula changes
     useEffect(() => {

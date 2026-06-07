@@ -49,6 +49,9 @@ export const DateRangePicker: React.FC = () => {
         ) {
             setTempRange(globalDateRange);
         }
+        // Sync only on external globalDateRange changes; depending on tempRange would
+        // reset the user's in-progress (unapplied) selection on every edit.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [globalDateRange]);
 
     // Close on click outside

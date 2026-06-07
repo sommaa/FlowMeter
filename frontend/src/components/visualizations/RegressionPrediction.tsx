@@ -330,6 +330,9 @@ export const RegressionPrediction: React.FC<RegressionPredictionProps> = ({ mode
             };
             onConfigUpdate(updates);
         }
+        // Sync only when the selected saved model (or the list) changes; depending on
+        // config.regression would snap the user's manual model_type edits back.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [config.saved_model_name, savedModels, onConfigUpdate]);
 
     return (
