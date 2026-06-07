@@ -1,0 +1,1254 @@
+{
+  "version": "1.0",
+  "created": "2026-03-28T17:32:17.166000+00:00",
+  "plant_name": "Ethylene Cracker",
+  "comments": "Example template for the Ethylene Cracker Process Data sample dataset. Includes 8 visualizations covering reactor performance, product slate, mass balance, energy analysis, vibration monitoring, emissions correlation, yield distribution, and frequency analysis. Designed to showcase all major FlowMeter features.",
+  "visualizations": [
+    {
+      "id": "viz-001-reactor-overview",
+      "title": "Reactor Performance Overview",
+      "viz_type": "universal",
+      "axis": {
+        "x_axis": "Index",
+        "x_label": "Date / Time",
+        "y_axis": [
+          "COT_degC",
+          "Ethylene_Yield_pct"
+        ],
+        "y_label": "Temperature (\u00b0C)",
+        "enable_x_axis_range": false,
+        "x_axis_min": null,
+        "x_axis_max": null,
+        "enable_y_axis_range": true,
+        "y_axis_min": 805.0,
+        "y_axis_max": 870.0,
+        "enable_y2_axis_range": true,
+        "y2_axis_min": 28.0,
+        "y2_axis_max": 35.0,
+        "y2_label": "Yield (wt%)",
+        "x_axis_scale": "linear",
+        "y_axis_scale": "linear",
+        "multi_axis_plot_type": "Line"
+      },
+      "legend": {
+        "labels": [
+          "Coil Outlet Temp",
+          "Ethylene Yield"
+        ]
+      },
+      "style": {
+        "color_index": 0,
+        "alpha": 0.8,
+        "colormap": "RdBu",
+        "custom_colors": null,
+        "enable_stacking": false
+      },
+      "limits": {
+        "thresholds": [
+          {
+            "id": "thr-cot-max",
+            "value": 855.0,
+            "label": "COT Max Limit",
+            "color": "#ef4444",
+            "show_shaded_area": true,
+            "shaded_area_direction": "up",
+            "shaded_area_opacity": 0.15,
+            "y_axis_id": "left"
+          }
+        ]
+      },
+      "regression": {
+        "added": false,
+        "degree": 1,
+        "predictors": null,
+        "remove_outliers": false,
+        "iqr_multiplier": 1.5,
+        "line_color": null,
+        "show_confidence_interval": true,
+        "model_type": "linear",
+        "alpha": 1.0,
+        "l1_ratio": 0.5,
+        "rf_n_estimators": 100,
+        "rf_max_depth": null,
+        "rf_min_samples_split": 2,
+        "rf_min_samples_leaf": 4,
+        "custom_formula": null,
+        "custom_params": null,
+        "custom_initial_guesses": null,
+        "custom_bounds_lower": null,
+        "custom_bounds_upper": null,
+        "custom_loss": "linear",
+        "custom_method": "trf"
+      },
+      "pca": {
+        "components": 2,
+        "show_loadings": true
+      },
+      "formula": {
+        "input": null,
+        "x_formula": null,
+        "result_configs": null,
+        "regression_degree": 1,
+        "regression_line_color": null,
+        "plot_type": "Line",
+        "add_regression": false,
+        "regression_remove_outliers": false
+      },
+      "fft": {
+        "window_size": null,
+        "overlap": 0.5,
+        "window_type": "hann",
+        "detrend": "linear",
+        "frequency_unit": "hz",
+        "normalize": false,
+        "x_axis_scale": "linear",
+        "y_axis_scale": "log"
+      },
+      "root_cause": {
+        "target_variable": null,
+        "max_lag": 40,
+        "top_n": 15,
+        "methods": [
+          "pearson",
+          "cross_corr",
+          "mutual_info",
+          "granger"
+        ],
+        "significance_threshold": 0.05,
+        "min_correlation": 0.1,
+        "include_variables": [],
+        "result_plot": "ranking"
+      },
+      "series_configs": {
+        "COT_degC": {
+          "type": "scatter",
+          "y_axis_id": "left",
+          "color": "#f97316",
+          "show_regression": true,
+          "show_confidence_interval": false,
+          "regression_color": null,
+          "remove_outliers": false,
+          "degree": 1,
+          "bins": null,
+          "show_kde": false,
+          "marker_symbol": "circle",
+          "marker_size": null,
+          "marker_filled": true,
+          "line_dash": "solid",
+          "line_width": 2
+        },
+        "Ethylene_Yield_pct": {
+          "type": "scatter",
+          "y_axis_id": "right",
+          "color": "#22c55e",
+          "show_regression": true,
+          "show_confidence_interval": true,
+          "regression_color": null,
+          "remove_outliers": false,
+          "degree": 1,
+          "bins": null,
+          "show_kde": false,
+          "marker_symbol": "circle",
+          "marker_size": null,
+          "marker_filled": true,
+          "line_dash": "solid",
+          "line_width": 2
+        }
+      },
+      "notes": "",
+      "date_range": null,
+      "saved_model_name": null
+    },
+    {
+      "id": "viz-002-product-slate",
+      "title": "Product Slate Breakdown",
+      "viz_type": "area",
+      "axis": {
+        "x_axis": "Index",
+        "x_label": "Date / Time",
+        "y_axis": [
+          "Ethylene_Product_tph",
+          "Propylene_Product_tph",
+          "Fuel_Gas_tph",
+          "Pygas_tph"
+        ],
+        "y_label": "Product Flow (t/h)",
+        "enable_x_axis_range": false,
+        "x_axis_min": null,
+        "x_axis_max": null,
+        "enable_y_axis_range": false,
+        "y_axis_min": null,
+        "y_axis_max": null,
+        "enable_y2_axis_range": false,
+        "y2_axis_min": null,
+        "y2_axis_max": null,
+        "y2_label": "Secondary Axis",
+        "x_axis_scale": "linear",
+        "y_axis_scale": "linear",
+        "multi_axis_plot_type": "Line"
+      },
+      "legend": {
+        "labels": [
+          "Ethylene",
+          "Propylene",
+          "Fuel Gas",
+          "Pygas"
+        ]
+      },
+      "style": {
+        "color_index": 0,
+        "alpha": 0.7,
+        "colormap": "RdBu",
+        "custom_colors": null,
+        "enable_stacking": true
+      },
+      "limits": {
+        "thresholds": []
+      },
+      "regression": {
+        "added": false,
+        "degree": 1,
+        "predictors": null,
+        "remove_outliers": false,
+        "iqr_multiplier": 1.5,
+        "line_color": null,
+        "show_confidence_interval": true,
+        "model_type": "linear",
+        "alpha": 1.0,
+        "l1_ratio": 0.5,
+        "rf_n_estimators": 100,
+        "rf_max_depth": null,
+        "rf_min_samples_split": 2,
+        "rf_min_samples_leaf": 4,
+        "custom_formula": null,
+        "custom_params": null,
+        "custom_initial_guesses": null,
+        "custom_bounds_lower": null,
+        "custom_bounds_upper": null,
+        "custom_loss": "linear",
+        "custom_method": "trf"
+      },
+      "pca": {
+        "components": 2,
+        "show_loadings": true
+      },
+      "formula": {
+        "input": null,
+        "x_formula": null,
+        "result_configs": null,
+        "regression_degree": 1,
+        "regression_line_color": null,
+        "plot_type": "Line",
+        "add_regression": false,
+        "regression_remove_outliers": false
+      },
+      "fft": {
+        "window_size": null,
+        "overlap": 0.5,
+        "window_type": "hann",
+        "detrend": "linear",
+        "frequency_unit": "hz",
+        "normalize": false,
+        "x_axis_scale": "linear",
+        "y_axis_scale": "log"
+      },
+      "root_cause": {
+        "target_variable": null,
+        "max_lag": 40,
+        "top_n": 15,
+        "methods": [
+          "pearson",
+          "cross_corr",
+          "mutual_info",
+          "granger"
+        ],
+        "significance_threshold": 0.05,
+        "min_correlation": 0.1,
+        "include_variables": [],
+        "result_plot": "ranking"
+      },
+      "series_configs": {
+        "Ethylene_Product_tph": {
+          "type": "line",
+          "y_axis_id": "left",
+          "color": "#3b82f6",
+          "show_regression": false,
+          "show_confidence_interval": false,
+          "regression_color": null,
+          "remove_outliers": false,
+          "degree": 1,
+          "bins": null,
+          "show_kde": false,
+          "marker_symbol": "circle",
+          "marker_size": null,
+          "marker_filled": true,
+          "line_dash": "solid",
+          "line_width": null
+        },
+        "Propylene_Product_tph": {
+          "type": "line",
+          "y_axis_id": "left",
+          "color": "#8b5cf6",
+          "show_regression": false,
+          "show_confidence_interval": false,
+          "regression_color": null,
+          "remove_outliers": false,
+          "degree": 1,
+          "bins": null,
+          "show_kde": false,
+          "marker_symbol": "circle",
+          "marker_size": null,
+          "marker_filled": true,
+          "line_dash": "solid",
+          "line_width": null
+        },
+        "Fuel_Gas_tph": {
+          "type": "line",
+          "y_axis_id": "left",
+          "color": "#f97316",
+          "show_regression": false,
+          "show_confidence_interval": false,
+          "regression_color": null,
+          "remove_outliers": false,
+          "degree": 1,
+          "bins": null,
+          "show_kde": false,
+          "marker_symbol": "circle",
+          "marker_size": null,
+          "marker_filled": true,
+          "line_dash": "solid",
+          "line_width": null
+        },
+        "Pygas_tph": {
+          "type": "line",
+          "y_axis_id": "left",
+          "color": "#eab308",
+          "show_regression": false,
+          "show_confidence_interval": false,
+          "regression_color": null,
+          "remove_outliers": false,
+          "degree": 1,
+          "bins": null,
+          "show_kde": false,
+          "marker_symbol": "circle",
+          "marker_size": null,
+          "marker_filled": true,
+          "line_dash": "solid",
+          "line_width": null
+        }
+      },
+      "notes": "Stacked area chart showing the four main product streams. The total height approximates the naphtha feed rate. The visible step-up around March 8 corresponds to the feed rate increase.",
+      "date_range": null,
+      "saved_model_name": null
+    },
+    {
+      "id": "viz-003-mass-balance",
+      "title": "Mass Balance Residual",
+      "viz_type": "formula",
+      "axis": {
+        "x_axis": "Index",
+        "x_label": "Date / Time",
+        "y_axis": [],
+        "y_label": "Residual (t/h)",
+        "enable_x_axis_range": false,
+        "x_axis_min": null,
+        "x_axis_max": null,
+        "enable_y_axis_range": false,
+        "y_axis_min": null,
+        "y_axis_max": null,
+        "enable_y2_axis_range": false,
+        "y2_axis_min": null,
+        "y2_axis_max": null,
+        "y2_label": "Secondary Axis",
+        "x_axis_scale": "linear",
+        "y_axis_scale": "linear",
+        "multi_axis_plot_type": "Line"
+      },
+      "legend": {
+        "labels": [
+          "Mass Balance Residual (t/h)",
+          "Reconciled Mass Balance Residual (t/h)"
+        ]
+      },
+      "style": {
+        "color_index": 0,
+        "alpha": 0.8,
+        "colormap": "RdBu",
+        "custom_colors": null,
+        "enable_stacking": false
+      },
+      "limits": {
+        "thresholds": []
+      },
+      "regression": {
+        "added": false,
+        "degree": 1,
+        "predictors": null,
+        "remove_outliers": false,
+        "iqr_multiplier": 1.5,
+        "line_color": null,
+        "show_confidence_interval": true,
+        "model_type": "linear",
+        "alpha": 1.0,
+        "l1_ratio": 0.5,
+        "rf_n_estimators": 100,
+        "rf_max_depth": null,
+        "rf_min_samples_split": 2,
+        "rf_min_samples_leaf": 4,
+        "custom_formula": null,
+        "custom_params": null,
+        "custom_initial_guesses": null,
+        "custom_bounds_lower": null,
+        "custom_bounds_upper": null,
+        "custom_loss": "linear",
+        "custom_method": "trf"
+      },
+      "pca": {
+        "components": 2,
+        "show_loadings": true
+      },
+      "formula": {
+        "input": "# Mass balance: Feed - (Ethylene + Propylene + Fuel Gas + Pygas)\n# A positive residual means unmeasured losses (e.g., heavy fraction, water, losses)\n# A negative residual means measurement overcount\nresult1 = col['Feed_Naphtha_tph'] - col['Ethylene_Product_tph'] - col['Propylene_Product_tph'] - col['Fuel_Gas_tph'] - col['Pygas_tph'] -38\n\nresult2 = col['Feed_Naphtha_tph_rec'] - col['Ethylene_Product_tph_rec'] - col['Propylene_Product_tph_rec'] - col['Fuel_Gas_tph_rec'] - col['Pygas_tph_rec']",
+        "x_formula": null,
+        "result_configs": {
+          "result": {
+            "type": "line",
+            "color": "#6366f1",
+            "y_axis_id": "left",
+            "show_regression": false,
+            "show_confidence_interval": false,
+            "regression_color": null,
+            "remove_outliers": false,
+            "marker_symbol": "circle",
+            "marker_size": null,
+            "marker_filled": true,
+            "line_dash": "solid",
+            "line_width": 2
+          },
+          "result1": {
+            "type": "scatter",
+            "color": "#0072BD",
+            "y_axis_id": "left",
+            "show_regression": false,
+            "show_confidence_interval": false,
+            "regression_color": null,
+            "remove_outliers": false,
+            "marker_symbol": "circle",
+            "marker_size": 5,
+            "marker_filled": true,
+            "line_dash": "solid",
+            "line_width": null
+          }
+        },
+        "regression_degree": 1,
+        "regression_line_color": null,
+        "plot_type": "Line",
+        "add_regression": false,
+        "regression_remove_outliers": false
+      },
+      "fft": {
+        "window_size": null,
+        "overlap": 0.5,
+        "window_type": "hann",
+        "detrend": "linear",
+        "frequency_unit": "hz",
+        "normalize": false,
+        "x_axis_scale": "linear",
+        "y_axis_scale": "log"
+      },
+      "root_cause": {
+        "target_variable": null,
+        "max_lag": 40,
+        "top_n": 15,
+        "methods": [
+          "pearson",
+          "cross_corr",
+          "mutual_info",
+          "granger"
+        ],
+        "significance_threshold": 0.05,
+        "min_correlation": 0.1,
+        "include_variables": [],
+        "result_plot": "ranking"
+      },
+      "series_configs": {},
+      "notes": "Plots Feed - (Ethylene + Propylene + Fuel Gas + Pygas). The residual represents unmeasured fractions (heavy ends, water, losses). Ideally near zero. Use Data Reconciliation to close this balance.",
+      "date_range": null,
+      "saved_model_name": null
+    },
+    {
+      "id": "viz-004-energy-analysis",
+      "title": "Specific Energy Consumption",
+      "viz_type": "formula",
+      "axis": {
+        "x_axis": "Index",
+        "x_label": "Date / Time",
+        "y_axis": [],
+        "y_label": "Energy (GJ/t ethylene)",
+        "enable_x_axis_range": false,
+        "x_axis_min": null,
+        "x_axis_max": null,
+        "enable_y_axis_range": false,
+        "y_axis_min": null,
+        "y_axis_max": null,
+        "enable_y2_axis_range": false,
+        "y2_axis_min": null,
+        "y2_axis_max": null,
+        "y2_label": "Secondary Axis",
+        "x_axis_scale": "linear",
+        "y_axis_scale": "linear",
+        "multi_axis_plot_type": "Line"
+      },
+      "legend": {
+        "labels": [
+          "Energy (GJ/t ethylene)",
+          "Energy Rolling avg (GJ/t ethylene)"
+        ]
+      },
+      "style": {
+        "color_index": 0,
+        "alpha": 0.8,
+        "colormap": "RdBu",
+        "custom_colors": {
+          "result1": "#999c9a",
+          "result2": "#D95319"
+        },
+        "enable_stacking": false
+      },
+      "limits": {
+        "thresholds": []
+      },
+      "regression": {
+        "added": false,
+        "degree": 1,
+        "predictors": null,
+        "remove_outliers": false,
+        "iqr_multiplier": 1.5,
+        "line_color": null,
+        "show_confidence_interval": true,
+        "model_type": "linear",
+        "alpha": 1.0,
+        "l1_ratio": 0.5,
+        "rf_n_estimators": 100,
+        "rf_max_depth": null,
+        "rf_min_samples_split": 2,
+        "rf_min_samples_leaf": 4,
+        "custom_formula": null,
+        "custom_params": null,
+        "custom_initial_guesses": null,
+        "custom_bounds_lower": null,
+        "custom_bounds_upper": null,
+        "custom_loss": "linear",
+        "custom_method": "trf"
+      },
+      "pca": {
+        "components": 2,
+        "show_loadings": true
+      },
+      "formula": {
+        "input": "# Specific energy: fuel gas (LHV 47 GJ/t) + electricity (3.6 GJ/MWh)\n# Normalized per tonne of ethylene product\nresult1 = (col['Fuel_Gas_Consumed_tph'] * 47.0 + col['Power_MW'] * 3.6) / col['Ethylene_Product_tph']\nresult2 = ((col['Fuel_Gas_Consumed_tph'] * 47.0 + col['Power_MW'] * 3.6) / col['Ethylene_Product_tph']).rolling(window=24).mean()",
+        "x_formula": null,
+        "result_configs": {
+          "result1": {
+            "type": "scatter",
+            "color": "#999c9a",
+            "y_axis_id": "left",
+            "show_regression": false,
+            "show_confidence_interval": false,
+            "regression_color": null,
+            "remove_outliers": false,
+            "marker_symbol": "circle",
+            "marker_size": 4,
+            "marker_filled": true,
+            "line_dash": "solid",
+            "line_width": null
+          },
+          "result2": {
+            "type": "line",
+            "color": "#D95319",
+            "y_axis_id": "left",
+            "show_regression": false,
+            "show_confidence_interval": false,
+            "regression_color": null,
+            "remove_outliers": false,
+            "marker_symbol": "circle",
+            "marker_size": null,
+            "marker_filled": true,
+            "line_dash": "solid",
+            "line_width": 3
+          }
+        },
+        "regression_degree": 1,
+        "regression_line_color": null,
+        "plot_type": "Line",
+        "add_regression": false,
+        "regression_remove_outliers": false
+      },
+      "fft": {
+        "window_size": null,
+        "overlap": 0.5,
+        "window_type": "hann",
+        "detrend": "linear",
+        "frequency_unit": "hz",
+        "normalize": false,
+        "x_axis_scale": "linear",
+        "y_axis_scale": "log"
+      },
+      "root_cause": {
+        "target_variable": null,
+        "max_lag": 40,
+        "top_n": 15,
+        "methods": [
+          "pearson",
+          "cross_corr",
+          "mutual_info",
+          "granger"
+        ],
+        "significance_threshold": 0.05,
+        "min_correlation": 0.1,
+        "include_variables": [],
+        "result_plot": "ranking"
+      },
+      "series_configs": {},
+      "notes": "Specific energy per tonne of ethylene. Orange scatter = hourly values. Red line = 24-hour rolling average. Lower is better. Watch for trends indicating furnace efficiency degradation.",
+      "date_range": null,
+      "saved_model_name": null
+    },
+    {
+      "id": "viz-005-vibration",
+      "title": "Compressor Health Monitor",
+      "viz_type": "universal",
+      "axis": {
+        "x_axis": "Index",
+        "x_label": "Date / Time",
+        "y_axis": [
+          "CGC_Vibration_mm_s",
+          "CGC_Speed_RPM"
+        ],
+        "y_label": "Vibration (mm/s)",
+        "enable_x_axis_range": false,
+        "x_axis_min": null,
+        "x_axis_max": null,
+        "enable_y_axis_range": true,
+        "y_axis_min": -13.0,
+        "y_axis_max": 15.0,
+        "enable_y2_axis_range": true,
+        "y2_axis_min": 4700.0,
+        "y2_axis_max": 5100.0,
+        "y2_label": "Speed (RPM)",
+        "x_axis_scale": "linear",
+        "y_axis_scale": "linear",
+        "multi_axis_plot_type": "Line"
+      },
+      "legend": {
+        "labels": [
+          "Vibration",
+          "Speed"
+        ]
+      },
+      "style": {
+        "color_index": 0,
+        "alpha": 0.8,
+        "colormap": "RdBu",
+        "custom_colors": {
+          "CGC_Speed_RPM": "#33d689"
+        },
+        "enable_stacking": false
+      },
+      "limits": {
+        "thresholds": [
+          {
+            "id": "thr-vib-alarm",
+            "value": 7.0,
+            "label": "Vibration Alarm",
+            "color": "#ef4444",
+            "show_shaded_area": true,
+            "shaded_area_direction": "up",
+            "shaded_area_opacity": 0.15,
+            "y_axis_id": "left"
+          },
+          {
+            "id": "thr-vib-warn",
+            "value": 5.0,
+            "label": "Vibration Warning",
+            "color": "#eab308",
+            "show_shaded_area": false,
+            "shaded_area_direction": "up",
+            "shaded_area_opacity": 0.1,
+            "y_axis_id": "left"
+          }
+        ]
+      },
+      "regression": {
+        "added": false,
+        "degree": 1,
+        "predictors": null,
+        "remove_outliers": false,
+        "iqr_multiplier": 1.5,
+        "line_color": null,
+        "show_confidence_interval": true,
+        "model_type": "linear",
+        "alpha": 1.0,
+        "l1_ratio": 0.5,
+        "rf_n_estimators": 100,
+        "rf_max_depth": null,
+        "rf_min_samples_split": 2,
+        "rf_min_samples_leaf": 4,
+        "custom_formula": null,
+        "custom_params": null,
+        "custom_initial_guesses": null,
+        "custom_bounds_lower": null,
+        "custom_bounds_upper": null,
+        "custom_loss": "linear",
+        "custom_method": "trf"
+      },
+      "pca": {
+        "components": 2,
+        "show_loadings": true
+      },
+      "formula": {
+        "input": null,
+        "x_formula": null,
+        "result_configs": null,
+        "regression_degree": 1,
+        "regression_line_color": null,
+        "plot_type": "Line",
+        "add_regression": false,
+        "regression_remove_outliers": false
+      },
+      "fft": {
+        "window_size": null,
+        "overlap": 0.5,
+        "window_type": "hann",
+        "detrend": "linear",
+        "frequency_unit": "hz",
+        "normalize": false,
+        "x_axis_scale": "linear",
+        "y_axis_scale": "log"
+      },
+      "root_cause": {
+        "target_variable": null,
+        "max_lag": 40,
+        "top_n": 15,
+        "methods": [
+          "pearson",
+          "cross_corr",
+          "mutual_info",
+          "granger"
+        ],
+        "significance_threshold": 0.05,
+        "min_correlation": 0.1,
+        "include_variables": [],
+        "result_plot": "ranking"
+      },
+      "series_configs": {
+        "CGC_Vibration_mm_s": {
+          "type": "line",
+          "y_axis_id": "left",
+          "color": "#ef4444",
+          "show_regression": false,
+          "show_confidence_interval": false,
+          "regression_color": null,
+          "remove_outliers": false,
+          "degree": 1,
+          "bins": null,
+          "show_kde": false,
+          "marker_symbol": "circle",
+          "marker_size": null,
+          "marker_filled": true,
+          "line_dash": "solid",
+          "line_width": 2
+        },
+        "CGC_Speed_RPM": {
+          "type": "line",
+          "y_axis_id": "right",
+          "color": "#33d689",
+          "show_regression": false,
+          "show_confidence_interval": false,
+          "regression_color": null,
+          "remove_outliers": false,
+          "degree": 1,
+          "bins": null,
+          "show_kde": false,
+          "marker_symbol": "circle",
+          "marker_size": null,
+          "marker_filled": true,
+          "line_dash": "solid",
+          "line_width": 2
+        }
+      },
+      "notes": "Compressor vibration vs speed. Note the vibration anomaly around March 11. Yellow line = warning threshold (5 mm/s). Red shaded zone = alarm threshold (7 mm/s). Speed shown on right axis for correlation.",
+      "date_range": null,
+      "saved_model_name": null
+    },
+    {
+      "id": "viz-006-regression",
+      "title": "COT \u2192 Ethylene Yield Regression",
+      "viz_type": "regression",
+      "axis": {
+        "x_axis": "COT_degC",
+        "x_label": "Coil Outlet Temperature (\u00b0C)",
+        "y_axis": [
+          "Ethylene_Yield_pct"
+        ],
+        "y_label": "Ethylene Yield (wt%)",
+        "enable_x_axis_range": false,
+        "x_axis_min": null,
+        "x_axis_max": null,
+        "enable_y_axis_range": false,
+        "y_axis_min": null,
+        "y_axis_max": null,
+        "enable_y2_axis_range": false,
+        "y2_axis_min": null,
+        "y2_axis_max": null,
+        "y2_label": "Secondary Axis",
+        "x_axis_scale": "linear",
+        "y_axis_scale": "linear",
+        "multi_axis_plot_type": "Scatter"
+      },
+      "legend": {
+        "labels": null
+      },
+      "style": {
+        "color_index": 2,
+        "alpha": 0.6,
+        "colormap": "RdBu",
+        "custom_colors": null,
+        "enable_stacking": false
+      },
+      "limits": {
+        "thresholds": []
+      },
+      "regression": {
+        "added": true,
+        "degree": 1,
+        "predictors": [
+          "COT_degC"
+        ],
+        "remove_outliers": false,
+        "iqr_multiplier": 1.5,
+        "line_color": "#ef4444",
+        "show_confidence_interval": true,
+        "model_type": "linear",
+        "alpha": 1.0,
+        "l1_ratio": 0.5,
+        "rf_n_estimators": 100,
+        "rf_max_depth": null,
+        "rf_min_samples_split": 2,
+        "rf_min_samples_leaf": 4,
+        "custom_formula": null,
+        "custom_params": null,
+        "custom_initial_guesses": null,
+        "custom_bounds_lower": null,
+        "custom_bounds_upper": null,
+        "custom_loss": "linear",
+        "custom_method": "trf"
+      },
+      "pca": {
+        "components": 2,
+        "show_loadings": true
+      },
+      "formula": {
+        "input": null,
+        "x_formula": null,
+        "result_configs": null,
+        "regression_degree": 1,
+        "regression_line_color": null,
+        "plot_type": "Line",
+        "add_regression": false,
+        "regression_remove_outliers": false
+      },
+      "fft": {
+        "window_size": null,
+        "overlap": 0.5,
+        "window_type": "hann",
+        "detrend": "linear",
+        "frequency_unit": "hz",
+        "normalize": false,
+        "x_axis_scale": "linear",
+        "y_axis_scale": "log"
+      },
+      "root_cause": {
+        "target_variable": null,
+        "max_lag": 40,
+        "top_n": 15,
+        "methods": [
+          "pearson",
+          "cross_corr",
+          "mutual_info",
+          "granger"
+        ],
+        "significance_threshold": 0.05,
+        "min_correlation": 0.1,
+        "include_variables": [],
+        "result_plot": "ranking"
+      },
+      "series_configs": {},
+      "notes": "Polynomial regression (degree 2) of ethylene yield vs COT. Shows the fundamental yield-severity curve. Data scatter reflects catalyst deactivation and feed changes. R\u00b2 indicates correlation strength.",
+      "date_range": null,
+      "saved_model_name": null
+    },
+    {
+      "id": "viz-007-correlation",
+      "title": "Reactor Variable Correlations",
+      "viz_type": "correlation",
+      "axis": {
+        "x_axis": "Index",
+        "x_label": "",
+        "y_axis": [
+          "Feed_Naphtha_tph",
+          "COT_degC",
+          "Firebox_Temp_degC",
+          "TMT_degC",
+          "Reactor_dP_bar",
+          "Conversion_pct",
+          "Ethylene_Yield_pct",
+          "Propylene_Yield_pct",
+          "NOx_mg_Nm3",
+          "Power_MW"
+        ],
+        "y_label": "",
+        "enable_x_axis_range": false,
+        "x_axis_min": null,
+        "x_axis_max": null,
+        "enable_y_axis_range": false,
+        "y_axis_min": null,
+        "y_axis_max": null,
+        "enable_y2_axis_range": false,
+        "y2_axis_min": null,
+        "y2_axis_max": null,
+        "y2_label": "Secondary Axis",
+        "x_axis_scale": "linear",
+        "y_axis_scale": "linear",
+        "multi_axis_plot_type": "Line"
+      },
+      "legend": {
+        "labels": null
+      },
+      "style": {
+        "color_index": 0,
+        "alpha": 0.8,
+        "colormap": "RdBu",
+        "custom_colors": null,
+        "enable_stacking": false
+      },
+      "limits": {
+        "thresholds": []
+      },
+      "regression": {
+        "added": false,
+        "degree": 1,
+        "predictors": null,
+        "remove_outliers": false,
+        "iqr_multiplier": 1.5,
+        "line_color": null,
+        "show_confidence_interval": true,
+        "model_type": "linear",
+        "alpha": 1.0,
+        "l1_ratio": 0.5,
+        "rf_n_estimators": 100,
+        "rf_max_depth": null,
+        "rf_min_samples_split": 2,
+        "rf_min_samples_leaf": 4,
+        "custom_formula": null,
+        "custom_params": null,
+        "custom_initial_guesses": null,
+        "custom_bounds_lower": null,
+        "custom_bounds_upper": null,
+        "custom_loss": "linear",
+        "custom_method": "trf"
+      },
+      "pca": {
+        "components": 2,
+        "show_loadings": true
+      },
+      "formula": {
+        "input": null,
+        "x_formula": null,
+        "result_configs": null,
+        "regression_degree": 1,
+        "regression_line_color": null,
+        "plot_type": "Line",
+        "add_regression": false,
+        "regression_remove_outliers": false
+      },
+      "fft": {
+        "window_size": null,
+        "overlap": 0.5,
+        "window_type": "hann",
+        "detrend": "linear",
+        "frequency_unit": "hz",
+        "normalize": false,
+        "x_axis_scale": "linear",
+        "y_axis_scale": "log"
+      },
+      "root_cause": {
+        "target_variable": null,
+        "max_lag": 40,
+        "top_n": 15,
+        "methods": [
+          "pearson",
+          "cross_corr",
+          "mutual_info",
+          "granger"
+        ],
+        "significance_threshold": 0.05,
+        "min_correlation": 0.1,
+        "include_variables": [],
+        "result_plot": "ranking"
+      },
+      "series_configs": {},
+      "notes": "Pearson correlation matrix across key reactor and performance variables. Look for strong positive (red) or negative (blue) correlations. COT should correlate with yields and NOx.",
+      "date_range": null,
+      "saved_model_name": null
+    },
+    {
+      "id": "viz-008-fft",
+      "title": "Cooling Water Temperature Frequency Analysis",
+      "viz_type": "fft",
+      "axis": {
+        "x_axis": "Timestamp",
+        "x_label": "Frequency",
+        "y_axis": [
+          "CW_Supply_Temp_degC"
+        ],
+        "y_label": "Amplitude",
+        "enable_x_axis_range": false,
+        "x_axis_min": null,
+        "x_axis_max": null,
+        "enable_y_axis_range": false,
+        "y_axis_min": null,
+        "y_axis_max": null,
+        "enable_y2_axis_range": false,
+        "y2_axis_min": null,
+        "y2_axis_max": null,
+        "y2_label": "Secondary Axis",
+        "x_axis_scale": "linear",
+        "y_axis_scale": "log",
+        "multi_axis_plot_type": "Line"
+      },
+      "legend": {
+        "labels": null
+      },
+      "style": {
+        "color_index": 4,
+        "alpha": 0.8,
+        "colormap": "RdBu",
+        "custom_colors": null,
+        "enable_stacking": false
+      },
+      "limits": {
+        "thresholds": []
+      },
+      "regression": {
+        "added": false,
+        "degree": 1,
+        "predictors": null,
+        "remove_outliers": false,
+        "iqr_multiplier": 1.5,
+        "line_color": null,
+        "show_confidence_interval": true,
+        "model_type": "linear",
+        "alpha": 1.0,
+        "l1_ratio": 0.5,
+        "rf_n_estimators": 100,
+        "rf_max_depth": null,
+        "rf_min_samples_split": 2,
+        "rf_min_samples_leaf": 4,
+        "custom_formula": null,
+        "custom_params": null,
+        "custom_initial_guesses": null,
+        "custom_bounds_lower": null,
+        "custom_bounds_upper": null,
+        "custom_loss": "linear",
+        "custom_method": "trf"
+      },
+      "pca": {
+        "components": 2,
+        "show_loadings": true
+      },
+      "formula": {
+        "input": null,
+        "x_formula": null,
+        "result_configs": null,
+        "regression_degree": 1,
+        "regression_line_color": null,
+        "plot_type": "Line",
+        "add_regression": false,
+        "regression_remove_outliers": false
+      },
+      "fft": {
+        "window_size": null,
+        "overlap": 0.5,
+        "window_type": "boxcar",
+        "detrend": "constant",
+        "frequency_unit": "cph",
+        "normalize": true,
+        "x_axis_scale": "linear",
+        "y_axis_scale": "log"
+      },
+      "root_cause": {
+        "target_variable": null,
+        "max_lag": 40,
+        "top_n": 15,
+        "methods": [
+          "pearson",
+          "cross_corr",
+          "mutual_info",
+          "granger"
+        ],
+        "significance_threshold": 0.05,
+        "min_correlation": 0.1,
+        "include_variables": [],
+        "result_plot": "ranking"
+      },
+      "series_configs": {},
+      "notes": "Frequency spectrum of cooling water supply temperature. Expect a clear peak at 1/24 cycles per hour (= once per day) due to the ambient day/night temperature cycle. Hann window applied.",
+      "date_range": null,
+      "saved_model_name": null
+    }
+  ],
+  "reconciliation_config": {
+    "equations": [
+      "Feed_Naphtha_tph = Ethylene_Product_tph + Propylene_Product_tph + Fuel_Gas_tph + Pygas_tph",
+      "HP_Steam_Gen_tph = HP_Steam_Use_tph + Steam_Export_tph"
+    ],
+    "sigma_mode": "from_config",
+    "fixed_sigma": 1.0,
+    "sigma_values": {
+      "Feed_Naphtha_tph": 2.4,
+      "Ethylene_Product_tph": 0.72,
+      "Propylene_Product_tph": 0.36,
+      "Fuel_Gas_tph": 0.34,
+      "Pygas_tph": 0.24,
+      "HP_Steam_Gen_tph": 2.88,
+      "HP_Steam_Use_tph": 2.44,
+      "Steam_Export_tph": 0.4
+    },
+    "non_negative": true
+  },
+  "required_variables": [
+    "CGC_Speed_RPM",
+    "CGC_Vibration_mm_s",
+    "Fuel_Gas_Consumed_tph",
+    "Firebox_Temp_degC",
+    "Pygas_tph",
+    "Fuel_Gas_tph",
+    "Conversion_pct",
+    "Power_MW",
+    "Timestamp",
+    "Ethylene_Product_tph",
+    "Propylene_Product_tph",
+    "NOx_mg_Nm3",
+    "CW_Supply_Temp_degC",
+    "Propylene_Yield_pct",
+    "CW_Flow_m3h",
+    "Feed_Naphtha_tph",
+    "COT_degC",
+    "CW_Return_Temp_degC",
+    "TMT_degC",
+    "Reactor_dP_bar",
+    "Ethylene_Yield_pct"
+  ],
+  "global_variables": [
+    {
+      "name": "Mass_Balance_Residual",
+      "formula": "col['Feed_Naphtha_tph'] - col['Ethylene_Product_tph'] - col['Propylene_Product_tph'] - col['Fuel_Gas_tph'] - col['Pygas_tph']",
+      "description": "Mass balance closure check (t/h). Should be near zero if the mass balance closes. Positive = unmeasured losses, negative = measurement overcount."
+    },
+    {
+      "name": "Delta_CW_Temp",
+      "formula": "col['CW_Return_Temp_degC'] - col['CW_Supply_Temp_degC']",
+      "description": "Cooling water temperature rise across heat exchangers (\u00b0C)."
+    },
+    {
+      "name": "CW_Heat_Duty_MW",
+      "formula": "col['CW_Flow_m3h'] * 4.18 * col['Delta_CW_Temp'] / 3600",
+      "description": "Total cooling water heat duty (MW). Uses \u0394T from global variable Delta_CW_Temp."
+    },
+    {
+      "name": "Specific_Energy_GJ_per_t",
+      "formula": "(col['Fuel_Gas_Consumed_tph'] * 47.0 + col['Power_MW'] * 3.6) / col['Ethylene_Product_tph']",
+      "description": "Specific energy consumption per tonne of ethylene produced (GJ/t). Includes fuel gas (LHV=47 GJ/t) and electricity (3.6 GJ/MWh)."
+    }
+  ],
+  "storyline_events": [
+    {
+      "id": "evt-001",
+      "date": "2025-03-02T21:00:00",
+      "title": "Flare Event #1",
+      "description": "Unplanned flaring due to pressure relief valve lifting on the quench system. Duration ~3 hours. Feed rate briefly reduced.",
+      "color": "#ef4444"
+    },
+    {
+      "id": "evt-002",
+      "date": "2025-03-06T00:00:00",
+      "title": "Catalyst Deactivation Noticed",
+      "description": "Yield trending downward. Coke buildup on radiant coils suspected. TMT rising gradually. Decoking run scheduled for next turnaround.",
+      "color": "#eab308"
+    },
+    {
+      "id": "evt-003",
+      "date": "2025-03-08T00:00:00",
+      "title": "Feed Rate Increase",
+      "description": "Naphtha feed increased from 120 to 130 t/h over a 12-hour ramp to meet higher ethylene demand. CGC speed and utilities adjusted accordingly.",
+      "color": "#3b82f6"
+    },
+    {
+      "id": "evt-004",
+      "date": "2025-03-11T13:00",
+      "title": "Compressor Vibration Alarm",
+      "description": "CGC vibration exceeded 10 mm/s alarm threshold. Bearing inspection initiated. Speed temporarily reduced.",
+      "color": "#ef4444"
+    },
+    {
+      "id": "evt-005",
+      "date": "2025-03-12T08:00",
+      "title": "Compressor Stabilized",
+      "description": "CGC vibration returned to normal range after bearing lubrication adjustment. No further intervention needed.",
+      "color": "#22c55e"
+    }
+  ],
+  "column_descriptions": {
+    "Feed_Naphtha_tph": "Naphtha feed rate to the cracking furnace (tonnes per hour)",
+    "Dilution_Steam_tph": "Steam injected with naphtha feed to control coke formation (tonnes per hour)",
+    "Steam_Dilution_Ratio": "Ratio of dilution steam to naphtha feed (kg steam / kg feed)",
+    "COT_degC": "Coil Outlet Temperature \u2013 primary lever for cracking severity (\u00b0C)",
+    "Crossover_Temp_degC": "Temperature at entry to the radiant section (\u00b0C)",
+    "Firebox_Temp_degC": "Furnace firebox / combustion chamber temperature (\u00b0C)",
+    "TMT_degC": "Tube Metal Temperature \u2013 equipment integrity limit monitor (\u00b0C)",
+    "Reactor_P_In_bar": "Cracker coil inlet pressure (bar absolute)",
+    "Reactor_P_Out_bar": "Cracker coil outlet pressure (bar absolute)",
+    "Reactor_dP_bar": "Pressure drop across the cracking coils (bar)",
+    "Residence_Time_ms": "Hydrocarbon residence time in the radiant coil (milliseconds)",
+    "Conversion_pct": "Overall naphtha conversion to cracked products (wt%)",
+    "Ethylene_Yield_pct": "Ethylene yield from naphtha feed (wt%)",
+    "Propylene_Yield_pct": "Propylene yield from naphtha feed (wt%)",
+    "Methane_Yield_pct": "Methane yield \u2013 goes to fuel gas system (wt%)",
+    "C4_Fraction_pct": "C4+ heavier fraction yield (wt%)",
+    "CGC_Speed_RPM": "Cracked Gas Compressor rotational speed (RPM)",
+    "CGC_Discharge_P_bar": "CGC discharge pressure (bar)",
+    "CGC_Vibration_mm_s": "CGC vibration level \u2013 monitored for mechanical health (mm/s RMS)",
+    "Demeth_OH_Temp_degC": "Demethanizer overhead temperature (\u00b0C)",
+    "C2_Reflux_Ratio": "C2 splitter reflux ratio (dimensionless)",
+    "Ethylene_Product_tph": "Polymer-grade ethylene product flow (tonnes per hour)",
+    "Propylene_Product_tph": "Chemical-grade propylene product flow (tonnes per hour)",
+    "Fuel_Gas_tph": "Fuel gas production \u2013 methane and lighter components (tonnes per hour)",
+    "Pygas_tph": "Pyrolysis gasoline \u2013 C5+ fraction (tonnes per hour)",
+    "Ethylene_Purity_pct": "Ethylene product purity (%)",
+    "Propylene_Purity_pct": "Propylene product purity (%)",
+    "HP_Steam_Gen_tph": "High-pressure steam generated in Transfer Line Exchangers (tonnes per hour)",
+    "HP_Steam_Use_tph": "HP steam consumed by turbine drives and process heating (tonnes per hour)",
+    "Steam_Export_tph": "Net HP steam exported to site header (tonnes per hour)",
+    "CW_Supply_Temp_degC": "Cooling water supply temperature (\u00b0C)",
+    "CW_Return_Temp_degC": "Cooling water return temperature (\u00b0C)",
+    "CW_Flow_m3h": "Cooling water circulation rate (m\u00b3/h)",
+    "Fuel_Gas_Consumed_tph": "Fuel gas burned in the cracking furnace (tonnes per hour)",
+    "Power_MW": "Total electrical power consumption (MW)",
+    "NOx_mg_Nm3": "Stack NOx emissions (mg/Nm\u00b3) \u2013 correlated with firebox temperature",
+    "CO_Stack_mg_Nm3": "Stack CO emissions (mg/Nm\u00b3)",
+    "Flare_Flow_tph": "Flare header flow \u2013 near zero in normal operation (tonnes per hour)",
+    "Ambient_Temp_degC": "Ambient air temperature (\u00b0C)"
+  },
+  "ai_guidance_text": "This is data from an ethylene steam cracker processing naphtha feedstock. Key variables include COT (coil outlet temperature, the main severity lever), yields of ethylene/propylene/fuel gas, and product flows. There is a feed rate step-change at the midpoint of the dataset and gradual catalyst deactivation causing yield drift. A compressor vibration anomaly occurs around hours 245-270. Mass and steam balances should close: Feed = Ethylene + Propylene + Fuel Gas + Pygas, and HP_Steam_Gen = HP_Steam_Use + Steam_Export."
+}

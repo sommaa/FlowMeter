@@ -637,13 +637,32 @@ This starts both services:
 
 ---
 
+### Try it with the example dataset
+
+Don't have process data handy? The [`examples/`](examples/) folder ships a complete,
+ready-to-run example:
+
+| File | What it is |
+|:-----|:-----------|
+| `examples/Ethylene_Cracker_Process_Data.xlsx` | Synthetic ethylene-cracker dataset — 336 hourly samples (14 days) × 40 process tags |
+| `examples/Ethylene Cracker Overview.json` | A matching dashboard template — 8 visualizations, formulas, computed global variables, and AI guidance |
+
+1. Launch FlowMeter (any option above).
+2. Upload `examples/Ethylene_Cracker_Process_Data.xlsx`.
+3. Choose **Import Template** and select `examples/Ethylene Cracker Overview.json` — the full dashboard renders immediately.
+
+See [`examples/README.md`](examples/README.md) for details and tips. The template's
+required columns match the dataset exactly, so it applies with no extra setup.
+
+---
+
 ## User Guide
 
 This section walks first-time users through every major feature, step by step.
 
 ### Step 1: Import Your Data
 
-**What you need:** A `.csv`, `.xlsx`, `.xls`, or `.parquet` (`.pqt`) file with your process data.
+**What you need:** A `.csv`, `.xlsx`, `.xls`, or `.parquet` (`.pqt`) file with your process data — or just grab the bundled [example dataset](examples/) to follow along.
 
 1. When you first launch FlowMeter, the **Onboarding Wizard** appears automatically
 2. Click **Upload File** or drag and drop your file onto the upload zone
