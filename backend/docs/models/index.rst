@@ -26,7 +26,7 @@ Enums
    * - Enum
      - Values
    * - ``VisualizationType``
-     - universal, area, hist, box, regression, pca, formula, correlation, fft, root_cause
+     - universal, area, hist, box, regression, pca, formula, correlation, fft, root_cause, kpi
    * - ``PlotType``
      - Line, Scatter, Line + Scatter
    * - ``SeriesRenderType``
@@ -69,13 +69,7 @@ API Request/Response Models
 AI Graph Schemas
 ^^^^^^^^^^^^^^^^
 
-.. automodule:: app.services.ai_graph.schemas
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Schemas for the LangGraph AI workflow:
-
-- **VisualizationSuggestion**: AI-generated visualization recommendation
-- **SuggestionBatch**: Collection of suggestions with metadata
-- **GraphState**: LangGraph workflow state container
+The LangGraph AI workflow defines its own Pydantic schemas (e.g.
+``VisualizationSuggestion``, ``SuggestionBatch``, and the graph state
+container). These live with the AI subsystem and are documented in the
+services reference under :mod:`app.services.ai_graph.schemas`.

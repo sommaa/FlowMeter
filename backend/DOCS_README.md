@@ -62,7 +62,7 @@ The generated documentation includes:
 ### Main Sections
 
 - **Data Management** (`/api/v1/data`): File upload, dataset CRUD, statistics
-- **Visualizations** (`/api/v1/visualizations`): Chart data generation (10 types)
+- **Visualizations** (`/api/v1/visualizations`): Chart data generation for all supported visualization types
 - **Reconciliation** (`/api/v1/reconcile`): Constrained optimization with OSQP
 - **Templates** (`/api/v1/templates`): Dashboard configuration persistence
 - **Export** (`/api/v1/export`): HTML report generation with embedded charts
@@ -81,11 +81,22 @@ Documentation generation is configured in `docs/conf.py`. Key settings:
 
 ## Updating Documentation
 
+The `services/` and `core/` reference pages auto-discover modules via
+recursive `autosummary` (see `docs/_templates/autosummary/module.rst`), so
+**new modules under `app/services` and `app/core` are picked up automatically
+on the next build — there is no module list to maintain by hand.** The
+`api/` and `models/` pages keep curated endpoint/schema tables; update those
+only when endpoints or schema groupings change.
+
 When you add or modify docstrings in the code:
 
 1. Make your code changes
 2. Add/update Google-style docstrings
 3. Run `make html` in the `docs/` directory to regenerate
+
+> The recursive `autosummary` writes generated stub pages into
+> `docs/<section>/_autosummary/`. These are build artifacts and are
+> gitignored — do not commit them.
 
 ## CI/CD Integration
 

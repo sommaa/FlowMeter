@@ -1,332 +1,50 @@
 Services Layer
 ==============
 
-Business logic layer containing all core application services.
-Services are accessed via singleton getter functions (e.g., ``get_data_service()``)
-and manage state, caching, and orchestration of domain operations.
+Business logic layer containing all core application services. Services are
+accessed via singleton getter functions (e.g. ``get_data_service()``) and
+manage state, caching, and orchestration of domain operations.
 
-.. contents:: Services
-   :local:
-   :depth: 1
+.. note::
 
-Data Service
-------------
+   The module reference below is generated automatically from the
+   ``app.services`` package and recurses into every submodule. New service
+   modules appear here on the next build with **no manual edits** — there is
+   no hand-maintained list to keep in sync.
 
-.. automodule:: app.services.data_service
-   :members:
-   :undoc-members:
-   :show-inheritance:
+Orientation
+-----------
 
-The ``DataService`` manages the complete lifecycle of uploaded datasets:
+A high-level map of what lives where. The authoritative, always-current
+detail is in the auto-generated reference at the bottom of this page.
 
-- **Upload processing**: Reads Excel/CSV files into pandas DataFrames
-- **Datetime detection**: Automatically identifies and parses date columns
-- **Data cleaning**: Delegates to ``CleaningService`` for preprocessing
-- **Storage**: In-memory dictionary storage (``_datasets``, ``_metadata``)
-- **Statistics**: Computes descriptive statistics per column
+- **Data** (``data_service``) — upload processing, datetime detection,
+  delegation to cleaning, in-memory dataset storage, and per-column statistics.
+- **Visualization** (``visualization_service`` + the ``visualization``
+  engine package) — turns a ``VisualizationConfig`` + DataFrame into a
+  ``PlotDataResponse``. Engine submodules cover plotting, regression,
+  processing/transforms, validation, FFT, root-cause, and KPI summaries.
+- **Reconciliation** (``reconciliation_service``) — constrained data
+  reconciliation via OSQP quadratic programming with SymPy-parsed balance
+  equations; emits reconciled Excel reports.
+- **Cleaning** (``cleaning_service``) — the upload-time preprocessing
+  pipeline (header selection, find/replace, NaN strategies, type coercion,
+  row filters).
+- **Export** (``export_service`` + the ``export_helpers`` package) —
+  self-contained HTML dashboard reports with Plotly/Kaleido static images,
+  statistics, and templating.
+- **AI** (``ai_service``, ``ai_metrics``, and the ``ai_graph`` package) — a
+  LangGraph workflow for visualization and formula suggestions across
+  multiple LLM providers, with dataset-profile grounding, optional agentic
+  dataset tools, closed-loop formula verification, and run metrics.
+- **Analytics** (``analytics`` package) — shared statistical methods such as
+  causality analysis used by the visualization engine and AI tools.
 
-Visualization Service
----------------------
-
-.. automodule:: app.services.visualization_service
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Orchestrates the transformation of raw data into ``PlotDataResponse`` objects
-for frontend rendering. Supports 10 visualization types:
-
-- **universal**: Line, scatter, bar, step charts
-- **area**: Stacked area charts
-- **histogram**: Distribution histograms with optional KDE
-- **box**: Box-and-whisker plots
-- **regression**: ML regression with confidence intervals
-- **pca**: Principal Component Analysis biplots
-- **formula**: Custom calculated field visualization
-- **correlation**: Correlation matrix heatmaps
-- **fft**: Frequency domain analysis
-- **root_cause**: Causality analysis
-
-Reconciliation Service
-----------------------
-
-.. automodule:: app.services.reconciliation_service
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Implements **constrained data reconciliation** using quadratic programming:
-
-- Enforces physical equations (mass/energy balance)
-- Minimizes adjustments to raw measurements
-- Uses OSQP solver for convex optimization
-- Supports SymPy-parsed constraint equations
-- Generates reconciled Excel reports
-
-Cleaning Service
+Module Reference
 ----------------
 
-.. automodule:: app.services.cleaning_service
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Data preprocessing pipeline applied during upload:
-
-- Header row selection
-- String replacements and find/replace rules
-- NaN handling strategies (drop, fill forward, interpolate)
-- Column type coercion
-- Filter rules for row selection
-
-AI Service
-----------
-
-.. automodule:: app.services.ai_service
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Orchestrates AI-powered visualization suggestions:
-
-- Analyzes dataset structure and column statistics
-- Delegates to LangGraph workflow for LLM inference
-- Supports multiple providers (OpenAI, Google Gemini, Anthropic Claude)
-- Validates and scores generated suggestions
-- Converts suggestions to ``VisualizationConfig`` objects
-
-Export Service
---------------
-
-.. automodule:: app.services.export_service
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Generates self-contained HTML dashboard reports:
-
-- Renders Plotly charts as static images (via Kaleido)
-- Embeds images in HTML with Base64 encoding
-- Includes statistical summaries and commentary
-- Supports custom branding and styling
-- Generates timeline/storyline annotations
-
-Visualization Engine
---------------------
-
-Submodules providing specialized visualization and analysis capabilities.
-
-Plotting
-^^^^^^^^
-
-.. automodule:: app.services.visualization.plotting
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Core chart rendering logic. Converts ``VisualizationConfig`` + DataFrame
-into ``PlotDataResponse`` with series data, axis labels, and metadata.
-
-Regression
-^^^^^^^^^^
-
-.. automodule:: app.services.visualization.regression
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Machine learning regression engine supporting:
-
-- **Linear**: Ordinary least squares
-- **Polynomial**: Configurable degree
-- **Ridge/Lasso/ElasticNet**: Regularized linear models
-- **Random Forest**: Ensemble tree-based regression
-- **Custom Formula**: User-defined mathematical expressions
-
-All models include R-squared metrics and optional confidence intervals.
-
-Processing
-^^^^^^^^^^
-
-.. automodule:: app.services.visualization.processing
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Data transformation utilities:
-
-- Global variable computation (formula evaluation)
-- Data filtering and date range selection
-- Column type inference and casting
-- Data downsampling (LTTBC algorithm)
-
-Validation
-^^^^^^^^^^
-
-.. automodule:: app.services.visualization.validation
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Configuration validation for visualization requests.
-
-FFT Analysis
-^^^^^^^^^^^^
-
-.. automodule:: app.services.visualization.fft
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Fast Fourier Transform analysis:
-
-- Frequency spectrum computation
-- Dominant frequency detection
-- Windowing functions (Hanning, Hamming, Blackman)
-- Power spectral density estimation
-
-Root Cause Analysis
-^^^^^^^^^^^^^^^^^^^
-
-.. automodule:: app.services.visualization.root_cause
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Statistical causality analysis:
-
-- Granger causality testing
-- Cross-correlation analysis
-- Lag detection between time series
-- Contribution scoring
-
-AI Graph Workflow
------------------
-
-LangGraph-based AI workflow for structured visualization suggestions.
-
-Graph Orchestration
-^^^^^^^^^^^^^^^^^^^
-
-.. automodule:: app.services.ai_graph.graph
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Main LangGraph workflow with nodes for:
-
-1. Dataset analysis
-2. Prompt construction
-3. LLM inference
-4. Response parsing
-5. Validation and scoring
-
-Prompts
-^^^^^^^
-
-.. automodule:: app.services.ai_graph.prompts
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-LLM prompt templates for visualization suggestion generation.
-
-Validators
-^^^^^^^^^^
-
-.. automodule:: app.services.ai_graph.validators
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Validates AI-generated visualization configurations against schema rules.
-
-Formula Validator
-^^^^^^^^^^^^^^^^^
-
-.. automodule:: app.services.ai_graph.formula_validator
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Validates mathematical formulas in AI-generated configurations.
-
-Formula Generator
-^^^^^^^^^^^^^^^^^
-
-.. automodule:: app.services.ai_graph.formula_generator
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Generates mathematical formulas for computed columns.
-
-LLM Providers
-^^^^^^^^^^^^^
-
-.. automodule:: app.services.ai_graph.providers
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Provider interfaces for:
-
-- **OpenAI**: GPT-4 / GPT-3.5
-- **Google**: Gemini Pro / Flash
-- **Anthropic**: Claude Sonnet / Haiku
-
-Analytics
----------
-
-Causality Analysis
-^^^^^^^^^^^^^^^^^^
-
-.. automodule:: app.services.analytics.causality
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Statistical methods for identifying causal relationships between variables.
-
-Export Helpers
---------------
-
-Plotly Renderer
-^^^^^^^^^^^^^^^
-
-.. automodule:: app.services.export_helpers.plotly_renderer
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Static image export using Plotly + Kaleido engine.
-
-Statistics
-^^^^^^^^^^
-
-.. automodule:: app.services.export_helpers.statistics
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Statistical summary generation for export reports.
-
-HTML Templates
-^^^^^^^^^^^^^^
-
-.. automodule:: app.services.export_helpers.html_templates
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Jinja2-based HTML template rendering for dashboard exports.
-
-Utilities
-^^^^^^^^^
-
-.. automodule:: app.services.export_helpers.utils
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Helper functions for export operations.
+.. autosummary::
+   :toctree: _autosummary
+   :recursive:
+
+   app.services

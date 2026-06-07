@@ -1,39 +1,45 @@
 Core Utilities
 ==============
 
-Core infrastructure modules providing configuration, middleware, and
-response handling for the application.
+Core infrastructure modules providing the FastAPI entry point, configuration,
+middleware, logging, and response handling for the application.
 
-.. contents:: Modules
-   :local:
-   :depth: 1
+.. note::
+
+   The module reference below is generated automatically from ``app.main``
+   and the ``app.core`` package, so new core modules appear without manual
+   edits. The sections that follow are curated orientation that rarely
+   changes.
+
+Module Reference
+----------------
+
+.. autosummary::
+   :toctree: _autosummary
+   :recursive:
+
+   app.main
+   app.core
 
 Application Entry Point
 -----------------------
 
-.. automodule:: app.main
-   :members:
-   :undoc-members:
-   :show-inheritance:
+The ``app`` object (``app.main``) is the FastAPI application instance
+configured with:
 
-The ``app`` object is the FastAPI application instance configured with:
-
-- **7 API router groups** (data, visualizations, reconciliation, templates, export, models, ai)
-- **3 middleware layers** (CORS, ProcessTime, GZip)
+- **API router groups** for data, visualizations, reconciliation, templates,
+  export, models, and ai
+- **Middleware stack** (CORS, ProcessTime, GZip)
 - **Global exception handler** returning structured JSON errors
 - **NaNSafeJSONResponse** as default response class
 - **SPA static file serving** for the React frontend
 - **Kaleido prewarm** on startup for faster first export
 
-Configuration
--------------
+Configuration Variables
+-----------------------
 
-.. automodule:: app.core.config
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Environment-based configuration using ``pydantic-settings``:
+Environment-based configuration using ``pydantic-settings`` (see
+:mod:`app.core.config` in the reference above for the authoritative model):
 
 .. list-table:: Configuration Variables
    :header-rows: 1
@@ -83,34 +89,3 @@ Environment-based configuration using ``pydantic-settings``:
      - int
      - 10
      - Max concurrent datasets
-
-Profiler Middleware
-------------------
-
-.. automodule:: app.core.profiler
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Request timing middleware that:
-
-- Measures request processing duration
-- Adds ``X-Process-Time`` response header
-- Logs slow requests to the ``profiler`` logger
-- Provides ``@profile_performance`` decorator for service functions
-
-NaN-Safe JSON Response
-----------------------
-
-.. automodule:: app.core.responses
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Custom FastAPI response class that handles scientific data serialization:
-
-- Converts ``NaN`` values to ``null``
-- Converts ``Inf``/``-Inf`` values to ``null``
-- Uses ``orjson`` for high-performance serialization
-- Compatible with numpy arrays and pandas objects
-- Set as the default response class for the entire application
