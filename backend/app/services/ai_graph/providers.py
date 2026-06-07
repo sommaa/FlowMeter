@@ -368,7 +368,16 @@ def _create_claude_model(
         # Adaptive thinking + ``output_config.effort`` is the current shape.
         # The older ``{"type": "enabled", "budget_tokens": N}`` form is
         # rejected by recent model versions.
-        kwargs["thinking"] = {"type": "adaptive"}
+        #
+        # ``display: "summarized"`` is required, not cosmetic: on Opus 4.7/4.8
+        # adaptive thinking defaults to ``display: "omitted"``, so streamed
+        # thinking blocks carry a signature but no thinking text. In this
+        # tool-using agent loop the assistant turn (thinking + tool_use) must be
+        # echoed back on the next iteration; an omitted thinking block has no
+        # ``thinking`` field, and Anthropic rejects it with
+        # "messages.N.content.0.thinking.thinking: Field required". Requesting
+        # summarized thinking keeps the text present so the block round-trips.
+        kwargs["thinking"] = {"type": "adaptive", "display": "summarized"}
         kwargs["model_kwargs"] = {"output_config": {"effort": effort}}
         # max_tokens must accommodate both thinking and output.
         kwargs["max_tokens"] = max_tokens + budget
