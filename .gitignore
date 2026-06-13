@@ -52,7 +52,8 @@ backend/build/
 backend/argparse
 backend/json
 backend/icon.ico
-backend/icon.png
+# backend/icon.png is the tracked source the Windows build converts to icon.ico
+# (see scripts/build.py:ensure_icon_exists); keep it committed, not ignored.
 
 # PyInstaller
 *.manifest
