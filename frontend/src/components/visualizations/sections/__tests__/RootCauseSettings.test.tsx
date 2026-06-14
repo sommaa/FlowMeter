@@ -46,6 +46,19 @@ describe('RootCauseSettings', () => {
         expect(container.innerHTML).toBe('');
     });
 
+    it('does not crash when a template viz has viz_type root_cause but no root_cause object', () => {
+        const onUpdate = vi.fn();
+        // Regression: RC templates can carry a root_cause viz with the config
+        // object stripped. Previously this threw "rc is undefined" on open.
+        const config = makeConfig({ root_cause: undefined });
+        expect(config.root_cause).toBeUndefined();
+        render(<RootCauseSettings config={config} numericColumns={numericColumns} onUpdate={onUpdate} />);
+        // Falls back to DEFAULT_ROOT_CAUSE: panel renders, no target set so all
+        // 5 columns are candidate variables.
+        expect(screen.getByText('Root Cause Analysis')).toBeTruthy();
+        expect(screen.getByText('Variables (5/5)')).toBeTruthy();
+    });
+
     it('renders target variable selector', () => {
         const onUpdate = vi.fn();
         render(<RootCauseSettings config={makeConfig()} numericColumns={numericColumns} onUpdate={onUpdate} />);

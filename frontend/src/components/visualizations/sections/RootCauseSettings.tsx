@@ -21,7 +21,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { VisualizationConfig } from '@/types';
+import { VisualizationConfig, RootCauseConfig } from '@/types';
 import { SearchableSelect, DebouncedInput, Checkbox, Divider } from '@/components/common';
 import { Search } from 'lucide-react';
 
@@ -56,6 +56,28 @@ const METHOD_OPTIONS = [
     { key: 'mutual_info', label: 'Mutual Information' },
     { key: 'granger', label: 'Granger Causality' },
 ];
+
+/**
+ * Fallback root-cause config.
+ *
+ * A dashboard template can carry a visualization with `viz_type: 'root_cause'`
+ * but no `root_cause` object (it's stripped or was never set when the template
+ * was authored). Without a fallback, opening this section dereferences
+ * `config.root_cause.target_variable` and crashes. Using these defaults keeps
+ * the panel usable; the first edit persists a complete object back to the config.
+ *
+ * @constant {RootCauseConfig}
+ */
+const DEFAULT_ROOT_CAUSE: RootCauseConfig = {
+    target_variable: undefined,
+    max_lag: 20,
+    top_n: 10,
+    methods: ['pearson', 'cross_corr', 'mutual_info', 'granger'],
+    significance_threshold: 0.05,
+    min_correlation: 0.3,
+    include_variables: [],
+    result_plot: 'ranking',
+};
 
 /**
  * Root cause settings component for causal analysis configuration.
@@ -142,7 +164,9 @@ const METHOD_OPTIONS = [
  */
 export const RootCauseSettings: React.FC<RootCauseSettingsProps> = ({ config, numericColumns, onUpdate }) => {
     // Hooks must run unconditionally — keep them above the early return below.
-    const rc = config.root_cause;
+    // Fall back to defaults so a template viz missing its `root_cause` object
+    // doesn't crash when this panel mounts (see DEFAULT_ROOT_CAUSE).
+    const rc = config.root_cause ?? DEFAULT_ROOT_CAUSE;
     const [variableFilter, setVariableFilter] = useState('');
 
     // Available variables = all numeric columns except the target
