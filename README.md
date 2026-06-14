@@ -38,6 +38,12 @@
 
 ---
 
+## 🎬 Demo
+
+https://github.com/user-attachments/assets/3480b96e-268b-402d-8f2e-c0327bd323fb
+
+---
+
 ## 📸 Screenshots
 
 <br>
