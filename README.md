@@ -8,7 +8,7 @@
 
 <br>
 
-[![Version](https://img.shields.io/badge/version-1.0.0--alpha-7C3AED?style=for-the-badge&labelColor=1e1e2e)](https://github.com/sommaa/flowmeter/releases)
+[![Version](https://img.shields.io/badge/version-1.0.0--alpha.2-7C3AED?style=for-the-badge&labelColor=1e1e2e)](https://github.com/sommaa/flowmeter/releases)
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.4-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://typescriptlang.org)
@@ -931,7 +931,7 @@ cp backend/.env.example backend/.env
 | Variable | Default | Description |
 |:---------|:--------|:------------|
 | `APP_NAME` | `FlowMeter API` | Application display name shown in API docs and logs |
-| `APP_VERSION` | `1.0.0-alpha` | Semantic version string |
+| `APP_VERSION` | `1.0.0-alpha.2` | Semantic version string |
 | `DEBUG` | `false` | Enable debug mode — verbose logging, full error tracebacks in API responses |
 | `HOST` | `0.0.0.0` | Server bind address (`0.0.0.0` = all network interfaces) |
 | `PORT` | `8000` | Listening port for the FastAPI/Uvicorn server |

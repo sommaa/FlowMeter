@@ -5,6 +5,14 @@ All notable changes to FlowMeter are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0-alpha.2] — 2026-06-14
+
+### Fixed
+- **Root-cause settings panel no longer crashes** when a dashboard template carries a
+  visualization with `viz_type: root_cause` but no `root_cause` configuration object.
+  Opening that visualization's config panel dereferenced an undefined value
+  (`rc is undefined`); it now falls back to sensible defaults and stays editable.
+
 ## [1.0.0-alpha] — 2026-06-07
 
 First public pre-release. FlowMeter is a local, single-user desktop application for
@@ -39,4 +47,5 @@ a FastAPI backend and a React/Vite frontend packaged as a single executable.
   tag-triggered release workflow that builds the Windows and Linux executables.
 - Removed dead legacy plotting code.
 
+[1.0.0-alpha.2]: https://github.com/sommaa/FlowMeter/releases/tag/v1.0.0-alpha.2
 [1.0.0-alpha]: https://github.com/sommaa/FlowMeter/releases/tag/v1.0.0-alpha

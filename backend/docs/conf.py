@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.abspath(".."))
 project = "FlowMeter Backend"
 copyright = "2026, FlowMeter Team"
 author = "FlowMeter Team"
-release = "1.0.0-alpha"
+release = "1.0.0-alpha.2"
 
 # -- General configuration ---------------------------------------------------
 extensions = [

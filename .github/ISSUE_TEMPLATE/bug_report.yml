@@ -30,7 +30,7 @@ body:
     id: version
     attributes:
       label: FlowMeter version
-      placeholder: "1.0.0-alpha"
+      placeholder: "1.0.0-alpha.2"
     validations:
       required: true
   - type: dropdown

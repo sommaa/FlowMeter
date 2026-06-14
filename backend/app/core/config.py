@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     
     # App Info
     app_name: str = "FlowMeter API"
-    app_version: str = "1.0.0-alpha"
+    app_version: str = "1.0.0-alpha.2"
     debug: bool = False
     
     # Server
