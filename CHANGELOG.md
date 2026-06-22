@@ -5,6 +5,21 @@ All notable changes to FlowMeter are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0-alpha.3] — 2026-06-22
+
+### Added
+- **Opt-out for the formula sandbox.** A new **Allow unsafe formulas** setting
+  (Settings ▸ Security) lets you disable formula safety so trusted templates with
+  non-whitelisted formulas can be imported, saved, and rendered. It is **off by
+  default**, persisted locally, and mirrored to the backend on startup. When an
+  import is blocked, an **"Enable unsafe formulas & retry"** prompt offers to turn
+  it on and re-run the import. Exposed at runtime via `GET`/`PUT
+  /api/v1/settings/security`, seeded by the `ALLOW_UNSAFE_FORMULAS` setting.
+
+### Fixed
+- **Startup sync no longer crashes the app under test mocks.** The formula-safety
+  preference is read from `localStorage` on startup instead of the store.
+
 ## [1.0.0-alpha.2] — 2026-06-14
 
 ### Fixed
@@ -47,5 +62,6 @@ a FastAPI backend and a React/Vite frontend packaged as a single executable.
   tag-triggered release workflow that builds the Windows and Linux executables.
 - Removed dead legacy plotting code.
 
+[1.0.0-alpha.3]: https://github.com/sommaa/FlowMeter/releases/tag/v1.0.0-alpha.3
 [1.0.0-alpha.2]: https://github.com/sommaa/FlowMeter/releases/tag/v1.0.0-alpha.2
 [1.0.0-alpha]: https://github.com/sommaa/FlowMeter/releases/tag/v1.0.0-alpha

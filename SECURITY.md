@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-FlowMeter is pre-1.0 software (`1.0.0-alpha.2`). Security fixes are applied to the
+FlowMeter is pre-1.0 software (`1.0.0-alpha.3`). Security fixes are applied to the
 latest release on the `main` branch only.
 
 ## Reporting a vulnerability
