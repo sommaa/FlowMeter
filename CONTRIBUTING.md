@@ -1,7 +1,7 @@
 # Contributing to FlowMeter
 
 Thanks for your interest in improving FlowMeter! This project is in an early
-(`1.0.0-alpha.2`) public phase, so bug reports, fixes, and focused feature work are all
+(`1.0.0-alpha.3`) public phase, so bug reports, fixes, and focused feature work are all
 genuinely useful.
 
 By participating you agree to abide by our [Code of Conduct](CODE_OF_CONDUCT.md).

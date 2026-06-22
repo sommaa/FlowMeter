@@ -15,6 +15,7 @@ import { OnboardingWizard } from '@/components/onboarding/OnboardingWizard';
 import { StorylineModal } from '@/components/features/Storyline/StorylineModal';
 import { useThemeEffect } from '@/hooks';
 import { settingsApi } from '@/services/api';
+import { ALLOW_UNSAFE_FORMULAS_STORAGE_KEY } from '@/store/slices/uiSlice';
 
 /**
  * Main application component with layout and global state management.
@@ -98,9 +99,12 @@ const App: React.FC = () => {
 
   // Mirror the persisted formula-sandbox preference to the backend on startup,
   // since the backend runtime flag resets to its default on every (re)start.
+  // Read straight from localStorage (the source of truth) so this does not
+  // depend on the store being initialised.
   React.useEffect(() => {
+    const allow = localStorage.getItem(ALLOW_UNSAFE_FORMULAS_STORAGE_KEY) === 'true';
     settingsApi
-      .setSecurity(useStore.getState().allowUnsafeFormulas)
+      .setSecurity(allow)
       .catch((e) => console.warn('Failed to sync formula-safety setting on startup:', e));
   }, []);
 
