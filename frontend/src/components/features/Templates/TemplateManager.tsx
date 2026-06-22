@@ -47,7 +47,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SavedTemplate } from '@/types';
-import { templateApi } from '@/services/api';
+import { templateApi, settingsApi } from '@/services/api';
 import { useStore } from '@/store';
 import { Button } from '@/components/common';
 import { Input } from '@/components/ui/input';
@@ -224,6 +224,7 @@ export const TemplateManager: React.FC = () => {
     const activeWorkspaceId = useStore((state) => state.activeWorkspaceId);
     const updateWorkspaceName = useStore((state) => state.updateWorkspaceName);
     const setPlantName = useStore((state) => state.setPlantName);
+    const setAllowUnsafeFormulas = useStore((state) => state.setAllowUnsafeFormulas);
 
     const [templates, setTemplates] = useState<SavedTemplate[]>([]);
     const [loading, setLoading] = useState(false);
@@ -242,10 +243,26 @@ export const TemplateManager: React.FC = () => {
 
     // Confirmation States
     const [confirmationState, setConfirmationState] = useState<{
-        type: 'delete' | 'load' | 'overwrite';
+        type: 'delete' | 'load' | 'overwrite' | 'unsafe';
         data?: any;
         isOpen: boolean;
     }>({ type: 'delete', isOpen: false });
+
+    // True when a backend error reports a sandbox-blocked formula.
+    const isUnsafeFormulaError = (msg?: string) =>
+        !!msg && msg.toLowerCase().includes('unsafe formula');
+
+    // Enable the formula-sandbox opt-out (frontend + backend) then re-run the
+    // action that was blocked by an unsafe formula.
+    const enableUnsafeAndRetry = async (retry: () => void | Promise<void>) => {
+        try {
+            await settingsApi.setSecurity(true);
+            setAllowUnsafeFormulas(true);
+            await retry();
+        } catch (err: any) {
+            setError(err.message || 'Failed to enable unsafe formulas');
+        }
+    };
 
     // Load templates when modal opens or dataset changes
     useEffect(() => {
@@ -328,10 +345,7 @@ export const TemplateManager: React.FC = () => {
         });
     };
 
-    const confirmLoad = async () => {
-        if (confirmationState.type !== 'load' || !confirmationState.data) return;
-        const name = confirmationState.data.name;
-
+    const loadSavedTemplate = async (name: string) => {
         setLoading(true);
         try {
             const rawTemplate = await templateApi.loadSaved(name) as any;
@@ -360,10 +374,24 @@ export const TemplateManager: React.FC = () => {
             setTemplateManagerOpen(false);
             setNotification(`Template "${name}" loaded successfully`);
         } catch (err: any) {
-            setError(err.message || 'Failed to load template');
+            const msg = err.message || 'Failed to load template';
+            if (isUnsafeFormulaError(msg)) {
+                setConfirmationState({
+                    type: 'unsafe',
+                    isOpen: true,
+                    data: { retry: () => loadSavedTemplate(name) },
+                });
+            } else {
+                setError(msg);
+            }
         } finally {
             setLoading(false);
         }
+    };
+
+    const confirmLoad = async () => {
+        if (confirmationState.type !== 'load' || !confirmationState.data) return;
+        await loadSavedTemplate(confirmationState.data.name);
     };
 
     const requestDelete = (name: string) => {
@@ -386,12 +414,8 @@ export const TemplateManager: React.FC = () => {
         }
     };
 
-    const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
-
+    const importTemplateFile = async (file: File) => {
         setUploading(true);
-
         try {
             const rawTemplate = await templateApi.load(file) as any;
             const name = file.name.replace('.json', '');
@@ -409,9 +433,27 @@ export const TemplateManager: React.FC = () => {
             loadTemplates();
             setNotification(`Template imported as "${name}"`);
         } catch (err: any) {
-            setError(err.message || 'Failed to upload template');
+            const msg = err.message || 'Failed to upload template';
+            if (isUnsafeFormulaError(msg)) {
+                setConfirmationState({
+                    type: 'unsafe',
+                    isOpen: true,
+                    data: { retry: () => importTemplateFile(file) },
+                });
+            } else {
+                setError(msg);
+            }
         } finally {
             setUploading(false);
+        }
+    };
+
+    const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        try {
+            await importTemplateFile(file);
+        } finally {
             event.target.value = '';
         }
     };
@@ -712,22 +754,26 @@ export const TemplateManager: React.FC = () => {
                     if (confirmationState.type === 'delete') confirmDelete();
                     if (confirmationState.type === 'load') confirmLoad();
                     if (confirmationState.type === 'overwrite') confirmOverwrite();
+                    if (confirmationState.type === 'unsafe') enableUnsafeAndRetry(confirmationState.data?.retry);
                 }}
                 title={
                     confirmationState.type === 'delete' ? 'Delete Template' :
                         confirmationState.type === 'load' ? 'Load Template' :
-                            'Overwrite Template'
+                            confirmationState.type === 'unsafe' ? 'Template contains blocked formulas' :
+                                'Overwrite Template'
                 }
                 message={
                     confirmationState.type === 'delete' ? `Are you sure you want to delete "${confirmationState.data?.name}"? This cannot be undone.` :
                         confirmationState.type === 'load' ? `Load template "${confirmationState.data?.name}"? Unsaved changes will be lost.` :
-                            `Template "${confirmationState.data?.name}" already exists. Do you want to overwrite it?`
+                            confirmationState.type === 'unsafe' ? 'This template has formulas blocked by the safety sandbox. Enabling "Allow unsafe formulas" lets it run but disables protection against malicious code — only continue if you trust this template.' :
+                                `Template "${confirmationState.data?.name}" already exists. Do you want to overwrite it?`
                 }
-                variant={confirmationState.type === 'delete' || confirmationState.type === 'overwrite' ? 'danger' : 'primary'}
+                variant={confirmationState.type === 'load' ? 'primary' : 'danger'}
                 confirmLabel={
                     confirmationState.type === 'delete' ? 'Delete' :
                         confirmationState.type === 'load' ? 'Load' :
-                            'Overwrite'
+                            confirmationState.type === 'unsafe' ? 'Enable unsafe formulas & retry' :
+                                'Overwrite'
                 }
             />
         </>

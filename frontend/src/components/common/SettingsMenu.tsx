@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Check, Moon, Sun, Settings, Download, Sparkles, Key, Eye, EyeOff, ExternalLink } from 'lucide-react';
+import { Check, Moon, Sun, Settings, Download, Sparkles, Key, Eye, EyeOff, ExternalLink, ShieldAlert } from 'lucide-react';
 import { useStore } from '@/store';
 import { THEMES } from '@/lib/themes';
 import {
@@ -56,6 +56,8 @@ export const SettingsMenu: React.FC = () => {
     const isDarkMode = useStore((state) => state.isDarkMode);
     const toggleDarkMode = useStore((state) => state.toggleDarkMode);
     const setExportConfigOpen = useStore((state) => state.setExportConfigOpen);
+    const allowUnsafeFormulas = useStore((state) => state.allowUnsafeFormulas);
+    const setAllowUnsafeFormulas = useStore((state) => state.setAllowUnsafeFormulas);
     const [open, setOpen] = useState(false);
 
     // AI Settings state
@@ -226,6 +228,43 @@ export const SettingsMenu: React.FC = () => {
                             )}
                         </div>
                     )}
+
+                    <div className="h-px bg-border" />
+
+                    {/* Security */}
+                    <div>
+                        <div className="text-xs font-semibold text-muted-foreground mb-2 px-1">
+                            Security
+                        </div>
+                        <button
+                            onClick={() => setAllowUnsafeFormulas(!allowUnsafeFormulas)}
+                            className="w-full flex items-center justify-between gap-2 px-2 py-1.5 text-sm rounded-sm hover:bg-accent hover:text-accent-foreground cursor-pointer transition-colors"
+                        >
+                            <div className="flex items-center gap-2">
+                                <div className={cn(
+                                    "p-1 rounded-md",
+                                    allowUnsafeFormulas ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
+                                )}>
+                                    <ShieldAlert className="w-3.5 h-3.5" />
+                                </div>
+                                <span>Allow unsafe formulas</span>
+                            </div>
+                            <div className={cn(
+                                "relative w-7 h-3.5 rounded-full transition-colors shrink-0",
+                                allowUnsafeFormulas ? "bg-destructive" : "bg-foreground/20"
+                            )}>
+                                <div className={cn(
+                                    "absolute top-0.5 w-2.5 h-2.5 rounded-full shadow-sm transition-transform",
+                                    allowUnsafeFormulas ? "bg-white translate-x-3.5" : "bg-card translate-x-0.5"
+                                )} />
+                            </div>
+                        </button>
+                        <p className="text-[11px] leading-snug text-muted-foreground px-2 mt-1">
+                            Disables the formula sandbox so charts, KPIs and templates can run
+                            non-whitelisted code. Only enable for templates you trust — a
+                            malicious formula can run code on your machine.
+                        </p>
+                    </div>
 
                     <div className="h-px bg-border" />
 

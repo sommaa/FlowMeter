@@ -34,7 +34,11 @@ from app.models.schemas import (
     TemplateConfig,
     VisualizationConfig
 )
-from app.services.formula_safety import assert_formula_safe, UnsafeFormulaError
+from app.services.formula_safety import (
+    assert_formula_safe,
+    is_unsafe_allowed,
+    UnsafeFormulaError,
+)
 
 import logging
 
@@ -86,7 +90,12 @@ def assert_template_formulas_safe(template: TemplateConfig) -> None:
     Defense in depth: every formula is also re-validated at evaluation time, but
     rejecting on save/import fails fast and keeps malicious templates out of the
     shared server-side store. Raises HTTPException 400 on the first unsafe formula.
+
+    No-op when the sandbox is opted out (``is_unsafe_allowed()``), so trusted
+    templates with non-whitelisted formulas can be saved/imported.
     """
+    if is_unsafe_allowed():
+        return
     for label, formula in _collect_template_formulas(template):
         try:
             assert_formula_safe(formula)
@@ -591,12 +600,14 @@ async def validate_template(template: TemplateConfig):
         if viz.viz_type.value in ['line', 'scatter', 'bar'] and not viz.y_axis:
             errors.append(f"Visualization {i+1} ({viz.title}): Y-axis is required")
 
-    # Surface unsafe formulas as blocking validation errors.
-    for label, formula in _collect_template_formulas(template):
-        try:
-            assert_formula_safe(formula)
-        except UnsafeFormulaError as exc:
-            errors.append(f"Unsafe formula in {label}: {exc}")
+    # Surface unsafe formulas as blocking validation errors (unless the sandbox
+    # is opted out, in which case such formulas are allowed to run).
+    if not is_unsafe_allowed():
+        for label, formula in _collect_template_formulas(template):
+            try:
+                assert_formula_safe(formula)
+            except UnsafeFormulaError as exc:
+                errors.append(f"Unsafe formula in {label}: {exc}")
 
     return APIResponse(
         success=len(errors) == 0,

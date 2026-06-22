@@ -313,6 +313,32 @@ export const templateApi = {
 };
 
 
+// ============= Settings API =============
+
+export const settingsApi = {
+  /**
+   * Read current security settings (formula-sandbox opt-out state).
+   */
+  getSecurity: async (): Promise<{ allow_unsafe_formulas: boolean }> => {
+    const response = await api.get<APIResponse<{ allow_unsafe_formulas: boolean }>>(
+      '/settings/security'
+    );
+    return response.data.data || { allow_unsafe_formulas: false };
+  },
+
+  /**
+   * Enable/disable the formula sandbox at runtime.
+   */
+  setSecurity: async (allow: boolean): Promise<{ allow_unsafe_formulas: boolean }> => {
+    const response = await api.put<APIResponse<{ allow_unsafe_formulas: boolean }>>(
+      '/settings/security',
+      { allow_unsafe_formulas: allow }
+    );
+    return response.data.data || { allow_unsafe_formulas: allow };
+  },
+};
+
+
 // ============= Export API =============
 
 export const exportApi = {

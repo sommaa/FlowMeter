@@ -47,6 +47,7 @@ class Settings(BaseSettings):
         allowed_extensions: Permitted file extensions for uploads.
         upload_dir: Directory for temporary file storage.
         max_datasets_per_session: Limit on concurrent loaded datasets.
+        allow_unsafe_formulas: Seed for the formula-sandbox opt-out (default off).
     """
     
     # App Info
@@ -68,7 +69,14 @@ class Settings(BaseSettings):
     
     # Data Storage (in-memory for MVP, can extend to Redis/DB)
     max_datasets_per_session: int = 10
-    
+
+    # Formula safety
+    # When True, the formula sandbox is disabled and user/template formulas run
+    # with real builtins (arbitrary code execution). Defaults to False (sandbox
+    # enforced); toggled at runtime via the settings endpoint. This is the seed
+    # value the runtime flag in app.services.formula_safety starts from.
+    allow_unsafe_formulas: bool = False
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

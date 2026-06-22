@@ -44,6 +44,40 @@ class UnsafeFormulaError(ValueError):
 
 
 # ---------------------------------------------------------------------------
+# Runtime opt-out of the sandbox.
+#
+# FlowMeter is a desktop-first, single-user, local app: the user owns the
+# machine and may knowingly trust their own templates, including formulas that
+# fall outside the conservative whitelist below. When this flag is on, every
+# gate in this module short-circuits and formulas run with *real* builtins —
+# i.e. arbitrary code execution. It defaults to off (sandbox enforced) and is
+# toggled at runtime via the settings endpoint (see app.api.settings).
+# ---------------------------------------------------------------------------
+_allow_unsafe: bool | None = None
+
+
+def is_unsafe_allowed() -> bool:
+    """Return whether the formula sandbox is currently disabled.
+
+    Lazily seeds from ``settings.allow_unsafe_formulas`` (env-overridable,
+    default ``False``) on first access so the env var is honored even if the
+    app startup hook never ran (e.g. in tests). Override with
+    :func:`set_unsafe_allowed`.
+    """
+    global _allow_unsafe
+    if _allow_unsafe is None:
+        from app.core.config import get_settings
+        _allow_unsafe = bool(get_settings().allow_unsafe_formulas)
+    return _allow_unsafe
+
+
+def set_unsafe_allowed(value: bool) -> None:
+    """Enable (``True``) or disable (``False``) the formula sandbox opt-out."""
+    global _allow_unsafe
+    _allow_unsafe = bool(value)
+
+
+# ---------------------------------------------------------------------------
 # Whitelist of callable names permitted inside formulas.
 #
 # Only pure numerical / array helpers appear here. Anything that performs I/O,
@@ -148,6 +182,8 @@ def assert_no_escape(code: str) -> None:
     set of callables with empty builtins (e.g. the regression engine's ``SAFE_MATH``),
     where the function-call whitelist would be redundant and overly strict.
     """
+    if is_unsafe_allowed():
+        return
     _reject_escapes(_parse(code))
 
 
@@ -163,6 +199,8 @@ def assert_formula_safe(code: str) -> None:
         UnsafeFormulaError: if the formula is empty, malformed, or contains
             disallowed constructs.
     """
+    if is_unsafe_allowed():
+        return
     tree = _parse(code)
     _reject_escapes(tree)
     unsafe = sorted(
@@ -184,7 +222,10 @@ def safe_eval(code: str, namespace: dict[str, Any]) -> Any:
     """
     assert_formula_safe(code)
     scope = dict(namespace)
-    scope['__builtins__'] = SAFE_BUILTINS
+    # When the sandbox is opted out, run with real builtins so trusted formulas
+    # using non-whitelisted calls work; otherwise lock builtins down.
+    if not is_unsafe_allowed():
+        scope['__builtins__'] = SAFE_BUILTINS
     return eval(code, scope)  # noqa: S307 - gated by assert_formula_safe + locked builtins
 
 
@@ -195,6 +236,9 @@ def safe_exec(code: str, namespace: dict[str, Any]) -> dict[str, Any]:
     it after execution) and returned for convenience.
     """
     assert_formula_safe(code)
-    namespace['__builtins__'] = SAFE_BUILTINS
+    # When the sandbox is opted out, run with real builtins so trusted formulas
+    # using non-whitelisted calls work; otherwise lock builtins down.
+    if not is_unsafe_allowed():
+        namespace['__builtins__'] = SAFE_BUILTINS
     exec(code, namespace)  # noqa: S102 - gated by assert_formula_safe + locked builtins
     return namespace

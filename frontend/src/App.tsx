@@ -14,6 +14,7 @@ import { TemplateManager } from '@/components/features/Templates/TemplateManager
 import { OnboardingWizard } from '@/components/onboarding/OnboardingWizard';
 import { StorylineModal } from '@/components/features/Storyline/StorylineModal';
 import { useThemeEffect } from '@/hooks';
+import { settingsApi } from '@/services/api';
 
 /**
  * Main application component with layout and global state management.
@@ -94,6 +95,14 @@ const App: React.FC = () => {
 
   // Theme effect
   useThemeEffect(theme, isDarkMode);
+
+  // Mirror the persisted formula-sandbox preference to the backend on startup,
+  // since the backend runtime flag resets to its default on every (re)start.
+  React.useEffect(() => {
+    settingsApi
+      .setSecurity(useStore.getState().allowUnsafeFormulas)
+      .catch((e) => console.warn('Failed to sync formula-safety setting on startup:', e));
+  }, []);
 
   // Sidebar state and constants
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
