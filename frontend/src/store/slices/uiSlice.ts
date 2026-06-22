@@ -14,7 +14,7 @@
  */
 import { StoreSlice } from './types';
 import { ThemeId } from '@/lib/themes';
-import { exportApi } from '@/services/api';
+import { exportApi, settingsApi } from '@/services/api';
 import { TemplateConfig, ReconciliationConfig, GlobalVariable, VisualizationConfig, StorylineEvent } from '@/types';
 
 /**
@@ -52,6 +52,10 @@ export interface UISlice {
     isTemplateManagerOpen: boolean;
     currentTemplateName: string | null;
 
+    // Security: opt-out of the formula sandbox (persisted in localStorage,
+    // mirrored to the backend). Default off.
+    allowUnsafeFormulas: boolean;
+
     // Export UI State
     exportConfig: ExportConfig;
     isExporting: boolean;
@@ -75,6 +79,9 @@ export interface UISlice {
     setSidebarWidth: (width: number) => void;
     toggleTemplateManager: () => void;
     setTemplateManagerOpen: (isOpen: boolean) => void;
+
+    // Security Actions
+    setAllowUnsafeFormulas: (value: boolean) => void;
 
     // Onboarding State
     hasOnboarded: boolean;
@@ -105,6 +112,18 @@ export interface UISlice {
 
 // LocalStorage key for export config persistence
 const EXPORT_CONFIG_STORAGE_KEY = 'flowmeter-export-config';
+
+// LocalStorage key for the formula-sandbox opt-out (source of truth, re-pushed
+// to the backend on startup). Defaults to off when unset.
+export const ALLOW_UNSAFE_FORMULAS_STORAGE_KEY = 'allow_unsafe_formulas';
+
+const loadAllowUnsafeFormulas = (): boolean => {
+    try {
+        return localStorage.getItem(ALLOW_UNSAFE_FORMULAS_STORAGE_KEY) === 'true';
+    } catch {
+        return false;
+    }
+};
 
 // Helper to load export config from localStorage
 const loadExportConfig = (): ExportConfig => {
@@ -150,6 +169,8 @@ export const createUISlice: StoreSlice<UISlice> = (set, get) => ({
     isSidebarTransitioning: false,
     isTemplateManagerOpen: false,
     currentTemplateName: null,
+
+    allowUnsafeFormulas: loadAllowUnsafeFormulas(),
 
     hasOnboarded: false,
     setHasOnboarded: (hasOnboarded) => set({ hasOnboarded }),
@@ -222,6 +243,19 @@ export const createUISlice: StoreSlice<UISlice> = (set, get) => ({
     setSidebarWidth: (width) => set({ sidebarWidth: width }),
     toggleTemplateManager: () => set((state) => ({ isTemplateManagerOpen: !state.isTemplateManagerOpen })),
     setTemplateManagerOpen: (isOpen) => set({ isTemplateManagerOpen: isOpen }),
+
+    setAllowUnsafeFormulas: (value) => {
+        set({ allowUnsafeFormulas: value });
+        try {
+            localStorage.setItem(ALLOW_UNSAFE_FORMULAS_STORAGE_KEY, String(value));
+        } catch (e) {
+            console.warn('Failed to persist allowUnsafeFormulas:', e);
+        }
+        // Mirror the choice to the backend runtime flag.
+        settingsApi.setSecurity(value).catch((e) => {
+            console.warn('Failed to sync formula-safety setting to backend:', e);
+        });
+    },
 
     setExportConfig: (config) => set((state) => {
         const newConfig = { ...state.exportConfig, ...config };

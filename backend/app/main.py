@@ -58,6 +58,7 @@ from fastapi.staticfiles import StaticFiles
 
 # Local Application Imports
 from app.api import api_router, data, export, reconciliation, templates, visualizations, models
+from app.api import settings as settings_api
 from app.core.config import get_settings
 from app.core.logging_filters import install_secret_redaction
 from app.core.profiler import ProcessTimeMiddleware
@@ -199,6 +200,7 @@ app.include_router(reconciliation.router, prefix="/api/v1/reconcile", tags=["Rec
 app.include_router(templates.router, prefix="/api/v1/templates", tags=["Templates"])
 app.include_router(export.router, prefix="/api/v1/export", tags=["Export"])
 app.include_router(models.router, prefix="/api/v1/models", tags=["Models"])
+app.include_router(settings_api.router, prefix="/api/v1/settings", tags=["Settings"])
 
 
 # --- Root / Health ---
